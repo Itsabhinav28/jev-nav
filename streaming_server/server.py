@@ -155,9 +155,9 @@ def run_hook(img: np.ndarray, ts: float, sensors: dict | None = None):
         S.hook_busy = False
 
 
-def ingest(img: np.ndarray, now: float) -> None:
+def ingest(img: np.ndarray, now: float, source: str = "phone") -> None:
     """One frame from any source (phone over WebRTC, or a camera on this computer)."""
-    S.latest, S.latest_ts = img, now
+    S.latest, S.latest_ts, S.source = img, now, source
     S.recv_frames += 1
     S.fps_window.append(now)
     if S.session:
@@ -193,7 +193,7 @@ def local_camera(cap: cv2.VideoCapture, loop: asyncio.AbstractEventLoop) -> None
                 time.sleep(0.05)
                 continue
             fails = 0
-            loop.call_soon_threadsafe(ingest, img, time.time())
+            loop.call_soon_threadsafe(ingest, img, time.time(), "camera")
     finally:
         cap.release()
 
@@ -276,6 +276,7 @@ async def status(_):
     s = S.session
     return web.json_response({
         "connected": S.latest is not None and time.time() - S.latest_ts < 3, "fps": round(S.fps, 1),
+        "source": getattr(S, "source", None),
         "resolution": f"{S.latest.shape[1]}x{S.latest.shape[0]}" if S.latest is not None else None,
         "capturing": s is not None,
         "capture": {"dir": str(s.dir), "frames_in": s.frames_in, "dropped": s.dropped,
@@ -382,6 +383,7 @@ def main():
     app.add_routes([
         web.get("/", lambda r: web.FileResponse(STATIC / "dashboard.html")),
         web.get("/phone", lambda r: web.FileResponse(STATIC / "phone.html")),
+        web.static("/brand", STATIC / "brand"),
         web.post("/offer", offer), web.get("/preview.mjpg", mjpeg),
         web.get("/api/status", status), web.get("/api/info", info), web.get("/api/nav", nav), web.post("/api/ask", ask), web.get("/nav.jpg", nav_jpg), web.get("/api/sensors", sensors), web.get("/qr.png", qr),
         web.post("/api/capture/start", capture_start), web.post("/api/capture/stop", capture_stop)])

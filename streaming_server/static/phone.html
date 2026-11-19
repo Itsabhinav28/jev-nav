@@ -1,44 +1,193 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Phone Camera</title>
+<meta name="theme-color" content="#EEF4EC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111A18" media="(prefers-color-scheme: dark)">
+<title>AccessWay · Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="icon" href="/brand/logo.png">
 <style>
-:root{color-scheme:dark}
-body{margin:0;background:#0b0d10;color:#e8eaed;font:15px system-ui,sans-serif;display:flex;flex-direction:column;min-height:100dvh}
-video{width:100%;flex:1;min-height:0;object-fit:contain;background:#000}
-.bar{padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:grid;gap:10px;background:#14171c}
-.row{display:flex;gap:8px}
-select,button{flex:1;padding:12px;border-radius:10px;border:1px solid #2a2f37;background:#1c2128;color:inherit;font-size:15px}
-button.go{background:#2563eb;border-color:#2563eb;font-weight:600}
-button.stop{background:#dc2626;border-color:#dc2626}
-#st{font-size:13px;opacity:.8;text-align:center;min-height:1.2em}
+:root{
+  --paper:hsl(100 25% 95%); --panel:#FFFFFF; --ink:hsl(160 20% 15%); --ink-2:hsl(160 10% 40%); --rule:hsl(120 15% 85%); --well:hsl(120 30% 94%);
+  --brand:hsl(150 30% 55%); --brand-dark:hsl(150 25% 45%);
+  --go:hsl(150 32% 38%); --steer:hsl(205 55% 40%); --warn:hsl(38 88% 58%); --stop:hsl(0 70% 50%); --idle:hsl(160 8% 62%);
+  --on-go:#fff; --on-steer:#fff; --on-warn:hsl(160 20% 15%); --on-stop:#fff; --focus:hsl(150 30% 40%);
+  --bg:linear-gradient(160deg,hsl(120 30% 94%) 0%,hsl(100 25% 95%) 55%,hsl(40 30% 96%) 100%);
+  --cta:linear-gradient(135deg,hsl(150 30% 55%) 0%,hsl(150 35% 45%) 100%);
+  --shadow-soft:0 4px 20px -4px hsl(160 20% 15% / .08); --shadow-card:0 8px 30px -8px hsl(160 20% 15% / .12);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --paper:hsl(160 20% 8%); --panel:hsl(160 15% 12%); --ink:hsl(120 15% 95%); --ink-2:hsl(120 10% 65%); --rule:hsl(160 15% 20%); --well:hsl(160 15% 18%);
+  --brand:hsl(150 35% 50%); --brand-dark:hsl(150 35% 42%);
+  --go:hsl(150 38% 42%); --steer:hsl(205 60% 50%); --stop:hsl(0 72% 56%); --idle:hsl(160 8% 45%); --focus:hsl(150 40% 60%);
+  --bg:linear-gradient(160deg,hsl(160 20% 9%) 0%,hsl(160 20% 8%) 100%);
+  --shadow-soft:0 4px 20px -4px hsl(0 0% 0% / .35); --shadow-card:0 8px 30px -8px hsl(0 0% 0% / .45);
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg) fixed;background-color:var(--paper);color:var(--ink);font:17px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+  min-height:100dvh;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 0}
+button,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:8px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+header{display:flex;align-items:center;gap:10px;padding:14px 18px}
+header img{height:34px;width:auto}
+header b{display:block;font-weight:700;font-size:1.1rem;letter-spacing:-.02em;line-height:1.1}
+header small{display:block;font-size:.6rem;color:var(--ink-2);font-weight:500;letter-spacing:.09em;text-transform:uppercase}
+header .state{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:.85rem;color:var(--ink-2);background:var(--panel);border:1px solid var(--rule);border-radius:99px;padding:5px 11px;box-shadow:var(--shadow-soft)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--idle)}.dot.ok{background:var(--brand)}.dot.bad{background:var(--stop)}
+
+/* the instruction owns the screen */
+.guide{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:14px;padding:12px 22px 18px;position:relative}
+.guide::before{content:"";position:absolute;left:18px;right:18px;top:0;height:6px;border-radius:99px;background:var(--tone,var(--idle))}
+.sign{width:min(44vw,210px);height:min(44vw,210px)}
+.sign svg{width:100%;height:100%;display:block}
+h1{font-size:clamp(2.5rem,11vw,3.8rem);line-height:1;font-weight:800;letter-spacing:-.035em;margin:6px 0 0}
+.detail{font-size:1.2rem;margin:0;max-width:24ch}
+.caption{background:var(--panel);border:1px solid color-mix(in srgb,var(--brand) 30%,transparent);border-radius:14px;padding:10px 16px;font-size:1rem;max-width:30ch;box-shadow:var(--shadow-soft)}
+.guide.changed .sign{animation:settle .42s cubic-bezier(.2,.9,.3,1.25)}
+@keyframes settle{0%{transform:scale(.86);opacity:.4}100%{transform:scale(1);opacity:1}}
+@media (prefers-reduced-motion:reduce){.guide.changed .sign{animation:none}}
+
+.cam{margin:0 18px;border-radius:18px;overflow:hidden;background:hsl(160 20% 12%);aspect-ratio:16/9;position:relative;box-shadow:var(--shadow-card)}
+.cam video{width:100%;height:100%;object-fit:cover;display:block}
+.cam .tag{position:absolute;left:10px;bottom:8px;font-size:.8rem;color:#DDE5EA;background:rgba(10,18,23,.6);padding:3px 8px;border-radius:6px}
+
+.dock{padding:14px 18px calc(16px + env(safe-area-inset-bottom));display:grid;gap:12px}
+details{border:1px solid var(--rule);border-radius:16px;background:var(--panel);box-shadow:var(--shadow-soft)}
+summary{padding:12px 14px;cursor:pointer;font-weight:500;list-style:none;display:flex;justify-content:space-between}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"Change";color:var(--ink-2);font-weight:400}
+details[open] summary::after{content:"Done"}
+.opts{display:grid;gap:10px;padding:0 14px 14px}
+.opts label{display:grid;gap:5px;font-size:.9rem;color:var(--ink-2)}
+select{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:12px;background:var(--panel)}
+.chk{display:flex!important;grid-template-columns:none;gap:10px;align-items:center;color:var(--ink)!important;font-size:.95rem!important}
+.chk input{width:20px;height:20px;accent-color:var(--brand-dark)}
+.main{width:100%;min-height:58px;border:0;border-radius:16px;background:var(--cta);color:#fff;font-weight:700;font-size:1.12rem;cursor:pointer;box-shadow:var(--shadow-card)}
+.main.stop{background:var(--stop);color:#fff}
+.small{font-size:.86rem;color:var(--ink-2);text-align:center;margin:0;min-height:1.2em}
+.aid{font-size:.86rem;color:var(--ink-2);text-align:center;margin:0}
 </style></head><body>
-<video id="v" autoplay playsinline muted></video>
-<div class="bar">
-  <div class="row">
-    <select id="res"><option value="1080">1080p</option><option value="720">720p</option><option value="2160">4K</option></select>
-    <select id="fps"><option>30</option><option>60</option><option>24</option><option>15</option></select>
-    <select id="cam"><option value="environment">Back cam</option><option value="user">Front cam</option></select>
-  </div>
-  <select id="br"><option value="8000">Bitrate 8 Mbps (high)</option><option value="4000">4 Mbps (balanced)</option><option value="15000">15 Mbps (max, LAN)</option><option value="1500">1.5 Mbps (weak Wi-Fi)</option></select>
-  <label style="font-size:13px;display:flex;gap:8px;align-items:center"><input type="checkbox" id="sens" checked> Send sensors (compass, motion, GPS)</label>
-  <button id="btn" class="go">Start streaming</button>
-  <div id="sst" style="font-size:12px;opacity:.7;text-align:center"></div>
-  <div id="st">Ready</div>
+
+<header>
+  <img src="/brand/logo.png" alt="">
+  <span><b>AccessWay</b><small>Accessibility in motion</small></span>
+  <span class="state"><i class="dot" id="dot"></i><span id="st">Ready</span></span>
+</header>
+
+<div class="sr" role="alert" aria-live="assertive" id="liveHazard"></div>
+<div class="sr" aria-live="polite" id="liveGuide"></div>
+
+<main class="guide" id="guide" style="--tone:var(--idle)">
+  <div class="sign" id="sign" aria-hidden="true"></div>
+  <h1 id="action">Ready to guide</h1>
+  <p class="detail" id="detail">Hold the phone at chest height with the back camera facing forward.</p>
+  <p class="caption" id="caption" hidden></p>
+</main>
+
+<div class="cam" id="camBox" hidden><video id="v" autoplay playsinline muted></video><span class="tag" id="sst"></span></div>
+
+<div class="dock">
+  <details id="settings">
+    <summary>Camera settings</summary>
+    <div class="opts">
+      <label>Video quality<select id="res"><option value="1080">1080p, recommended</option><option value="720">720p, saves battery</option><option value="2160">4K, most detail</option></select></label>
+      <label>Smoothness<select id="fps"><option value="30">30 frames per second</option><option value="60">60 frames per second</option><option value="24">24 frames per second</option><option value="15">15 frames per second</option></select></label>
+      <label>Camera<select id="cam"><option value="environment">Back camera, recommended</option><option value="user">Front camera</option></select></label>
+      <label>Wi-Fi strength<select id="br"><option value="8000">Strong (8 Mbps)</option><option value="4000">Average (4 Mbps)</option><option value="15000">Very strong (15 Mbps)</option><option value="1500">Weak (1.5 Mbps)</option></select></label>
+      <label class="chk"><input type="checkbox" id="sens" checked> Share motion and location, so guidance knows when you're walking</label>
+    </div>
+  </details>
+  <button class="main" id="btn" type="button">Start guidance</button>
+  <p class="small" id="net"></p>
+  <p class="aid">An aid to use with your cane, guide dog or a companion, never instead of them.</p>
 </div>
+
 <script>
 const $=id=>document.getElementById(id);
-let pc=null,stream=null,wake=null,timer=null;
+let pc=null,stream=null,wake=null,timer=null,navTimer=null;
 const W={720:1280,1080:1920,2160:3840}, H={720:720,1080:1080,2160:2160};
 
+/* ── guidance display (same vocabulary as the dashboard) ── */
+const SIGNS={
+  go:g=>`<svg viewBox="0 0 100 100"><rect x="6" y="6" width="88" height="88" rx="10" fill="var(--go)"/><g color="var(--on-go)">${g}</g></svg>`,
+  steer:g=>`<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="var(--steer)"/><g color="var(--on-steer)">${g}</g></svg>`,
+  warn:g=>`<svg viewBox="0 0 100 100"><path d="M50 8 95 88H5Z" fill="var(--warn)" stroke="var(--warn)" stroke-width="8" stroke-linejoin="round"/><g color="var(--on-warn)" transform="translate(0 10)">${g}</g></svg>`,
+  stop:g=>`<svg viewBox="0 0 100 100"><path d="M32 6h36l26 26v36L68 94H32L6 68V32Z" fill="var(--stop)" stroke="var(--stop)" stroke-width="6" stroke-linejoin="round"/><g color="var(--on-stop)">${g}</g></svg>`,
+  idle:()=>`<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="43" fill="none" stroke="var(--idle)" stroke-width="4" stroke-dasharray="8 8"/></svg>`,
+};
+const G={
+  up:'<path d="M50 28 70 52H58v22H42V52H30Z" fill="currentColor"/>',
+  left:'<path d="M66 72V46c0-6-4-10-10-10H44V24L24 42l20 18V48h10v24Z" fill="currentColor"/>',
+  right:'<path d="M34 72V46c0-6 4-10 10-10h12V24l20 18-20 18V48H46v24Z" fill="currentColor"/>',
+  bar:'<rect x="22" y="42" width="56" height="16" rx="3" fill="currentColor"/>',
+  bang:'<rect x="45" y="30" width="10" height="28" rx="3" fill="currentColor"/><circle cx="50" cy="68" r="6" fill="currentColor"/>',
+  pause:'<rect x="38" y="32" width="9" height="36" rx="2" fill="currentColor"/><rect x="53" y="32" width="9" height="36" rx="2" fill="currentColor"/>',
+  stairs:'<path d="M24 74h14V62h12V50h12V38h14v8h-6v12H58v12H46v12H24Z" fill="currentColor"/>',
+  stairsUp:'<path d="M22 76h12V66h10V56h10V46h12v8h-6v10H50v10H40v10H22Z" fill="currentColor"/><path d="M66 22l12 13h-7v8h-10v-8h-7Z" fill="currentColor"/>',
+  stairsDown:'<path d="M22 76h12V66h10V56h10V46h12v8h-6v10H50v10H40v10H22Z" fill="currentColor"/><path d="M66 44l12-13h-7v-8h-10v8h-7Z" fill="currentColor"/>',
+};
+const ACTIONS={
+  MOVE_FORWARD:{label:'Continue',tone:'go',sign:SIGNS.go(G.up)},
+  SLOW_DOWN:{label:'Slow down',tone:'warn',sign:SIGNS.warn(G.bang)},
+  WAIT:{label:'Wait',tone:'warn',sign:SIGNS.warn(G.pause)},
+  GO_LEFT:{label:'Bear left',tone:'steer',sign:SIGNS.steer(G.left)},
+  GO_RIGHT:{label:'Bear right',tone:'steer',sign:SIGNS.steer(G.right)},
+  STOP:{label:'Stop',tone:'stop',sign:SIGNS.stop(G.bar)},
+  STOP_AT_STAIRS:{label:'Stop: stairs',tone:'stop',sign:SIGNS.stop(G.stairs)},
+  CLIMB_UP:{label:'Stairs up',tone:'steer',sign:SIGNS.steer(G.stairsUp)},
+  CLIMB_DOWN:{label:'Stairs down',tone:'steer',sign:SIGNS.steer(G.stairsDown)},
+};
+const HAZARD={person:'Person',moving_vehicle_or_cycle:'Moving vehicle or cycle',stairs_up:'Stairs going up',stairs_down:'Stairs going down',
+  fixed_obstacle:'Obstacle',ground_hazard:'Uneven ground',overhead_hazard:'Something at head height',cannot_see:"Camera can't see clearly",stairs:'Stairs'};
+const DIST={near:'within 2 steps',mid:'2 to 6 steps ahead',far:'further ahead'};
+function detailFor(d){
+  if(d.action==='MOVE_FORWARD') return 'No hazard detected ahead.';
+  if(d.action==='CLIMB_UP'||d.action==='CLIMB_DOWN') return 'One step at a time. Hold the rail if there is one.';
+  const h=HAZARD[d.hazard_kind], w=DIST[d.distance];
+  if(h&&w&&d.hazard_kind!=='cannot_see') return `${h} ${w}.`;
+  if(h) return `${h}.`;
+  return d.action==='WAIT'?'Something is crossing the path.':'Something needs care ahead.';
+}
+// Haptics where the platform allows it (Android; iOS Safari has no Vibration API)
+const BUZZ={stop:[220,90,220,90,420],warn:[160],steer:[70,60,70],go:[]};
+$('sign').innerHTML=SIGNS.idle();
+let lastAction=null,lastSpoken='';
+async function navTick(){
+  let n; try{ n=await (await fetch('/api/nav')).json(); }catch(e){ return; }
+  if(!n.enabled||!n.decision) return;
+  const d=n.decision, cfg=ACTIONS[d.action]||{label:d.action,tone:'idle',sign:SIGNS.idle()};
+  $('guide').style.setProperty('--tone',`var(--${cfg.tone})`);
+  if(d.action!==lastAction){
+    $('sign').innerHTML=cfg.sign; const g=$('guide'); g.classList.remove('changed'); void g.offsetWidth; g.classList.add('changed');
+    const msg=`${cfg.label}. ${detailFor(d)}`;
+    if(d.urgency==='critical') $('liveHazard').textContent=msg; else $('liveGuide').textContent=msg;
+    if(navigator.vibrate&&BUZZ[cfg.tone]&&BUZZ[cfg.tone].length) navigator.vibrate(BUZZ[cfg.tone]);
+    lastAction=d.action;
+  }
+  $('action').textContent=cfg.label; $('detail').textContent=detailFor(d);
+  const said=[...(n.spoken||[])].reverse().find(x=>x.who!=='you');
+  if(said&&said.text!==lastSpoken){ lastSpoken=said.text; $('caption').textContent=`“${said.text}”`; $('caption').hidden=false; }
+}
+function resetGuide(){
+  lastAction=null; $('guide').style.setProperty('--tone','var(--idle)'); $('sign').innerHTML=SIGNS.idle();
+  $('action').textContent='Ready to guide'; $('detail').textContent='Hold the phone at chest height with the back camera facing forward.'; $('caption').hidden=true;
+}
+
+/* ── streaming (WebRTC to this computer) ── */
 async function start(){
-  if(!navigator.mediaDevices){ $('st').textContent='Camera needs HTTPS - open the https:// link and accept the warning.'; return; }
+  if(!navigator.mediaDevices){ setState('Open the https:// link and continue past the certificate warning. The camera only works on a secure page.','bad'); return; }
   if($('sens').checked) await startSensors();   // first: iOS needs this inside the tap
-  $('st').textContent='Opening camera...';
+  setState('Opening camera…');
   const r=+$('res').value, fps=+$('fps').value;
   stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{
     facingMode:$('cam').value, width:{ideal:W[r]}, height:{ideal:H[r]}, frameRate:{ideal:fps}}});
-  $('v').srcObject=stream;
+  $('v').srcObject=stream; $('camBox').hidden=false; $('settings').open=false;
   const vt=stream.getVideoTracks()[0]; vt.contentHint='motion';
   try{ wake=await navigator.wakeLock.request('screen'); }catch(e){}
 
@@ -64,11 +213,14 @@ async function start(){
   const resp=await fetch('/offer',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({sdp:pc.localDescription.sdp,type:pc.localDescription.type})});
   await pc.setRemoteDescription(await resp.json());
-  pc.onconnectionstatechange=()=>{ if(['failed','closed'].includes(pc.connectionState)) stop('Connection failed ('+pc.iceConnectionState+') - firewall/Wi-Fi isolation?'); };
-  pc.oniceconnectionstatechange=()=>{ if(!last) $('st').textContent='Connecting... ('+pc.iceConnectionState+')'; };
-  $('st').textContent='Connecting... ('+pc.iceConnectionState+')';
-  $('btn').textContent='Stop'; $('btn').className='stop';
+  pc.onconnectionstatechange=()=>{
+    if(pc.connectionState==='connected') setState('Guiding','ok');
+    if(['failed','closed'].includes(pc.connectionState)) stop("Couldn't reach the computer. Check you're on the same Wi-Fi and its firewall allows incoming connections.",true);
+  };
+  setState('Connecting…');
+  $('btn').textContent='Stop guidance'; $('btn').className='main stop';
   timer=setInterval(stats,1000);
+  clearInterval(navTimer); navTimer=setInterval(navTick,500);
 }
 let last=null;
 async function stats(){
@@ -76,17 +228,20 @@ async function stats(){
   for(const s of (await pc.getStats()).values()){
     if(s.type==='outbound-rtp'&&s.kind==='video'){
       let kbps=last?Math.round((s.bytesSent-last.bytesSent)*8/((s.timestamp-last.timestamp)/1000)/1000):0; last=s;
-      $('st').textContent=`Live ${s.frameWidth}x${s.frameHeight} @ ${Math.round(s.framesPerSecond||0)} fps - ${kbps} kbps`+
-        (s.qualityLimitationReason&&s.qualityLimitationReason!=='none'?` (limited: ${s.qualityLimitationReason})`:'');
+      const limited=s.qualityLimitationReason&&s.qualityLimitationReason!=='none';
+      $('net').textContent=`Sending ${s.frameHeight}p at ${Math.round(s.framesPerSecond||0)} fps`+(limited?`, reduced because of ${s.qualityLimitationReason==='bandwidth'?'weak Wi-Fi':'phone load'}`:'');
     }
   }
 }
-function stop(msg){
-  clearInterval(timer); clearInterval(sendTimer); last=null; dc=null; $('sst').textContent='';
+function setState(text,cls){ $('st').textContent=text.length>28?(cls==='bad'?'Problem':'Working'):text; $('dot').className='dot'+(cls?' '+cls:''); if(text.length>28) $('net').textContent=text; }
+function stop(msg,isError){
+  clearInterval(timer); clearInterval(sendTimer); clearInterval(navTimer); last=null; dc=null; $('sst').textContent='';
   if(geoId!=null){navigator.geolocation.clearWatch(geoId);geoId=null;} SN.g=null;
   pc&&pc.close(); pc=null; stream&&stream.getTracks().forEach(t=>t.stop()); stream=null;
-  wake&&wake.release().catch(()=>{}); $('v').srcObject=null;
-  $('btn').textContent='Start streaming'; $('btn').className='go'; $('st').textContent=msg||'Stopped';
+  wake&&wake.release().catch(()=>{}); $('v').srcObject=null; $('camBox').hidden=true;
+  $('btn').textContent='Start guidance'; $('btn').className='main';
+  resetGuide(); $('net').textContent='';
+  setState(msg||'Stopped',isError?'bad':'');
 }
 // ---- sensors: compass/orientation, motion, GPS -> sent over a WebRTC data channel ----
 const SN={o:null,m:null,g:null,abs:false,on:false};
@@ -114,13 +269,13 @@ async function startSensors(){
   watchGeo(true);
 }
 function watchGeo(high){
-  if(!navigator.geolocation){SN.gerr='GPS not supported';return;}
+  if(!navigator.geolocation){SN.gerr='Location not supported';return;}
   if(geoId!=null)navigator.geolocation.clearWatch(geoId);
-  geoId=navigator.geolocation.watchPosition(p=>{const c=p.coords; SN.gerr=null; SN.gmode=high?'GPS':'network';
+  geoId=navigator.geolocation.watchPosition(p=>{const c=p.coords; SN.gerr=null; SN.gmode=high?'GPS':'Wi-Fi location';
       SN.g={lat:c.latitude,lon:c.longitude,acc:c.accuracy,alt:c.altitude,speed:c.speed,hdg:c.heading,ts:Date.now()};},
     e=>{
-      if(e.code===1){SN.gerr='Location blocked: allow it in browser site settings & turn on phone Location';return;}
-      SN.gerr=e.code===3?'GPS timeout (go near a window/outside)':'GPS unavailable';
+      if(e.code===1){SN.gerr='Location blocked: allow it in the browser settings';return;}
+      SN.gerr=e.code===3?'No GPS fix yet':'Location unavailable';
       if(high){watchGeo(false);}   // fall back to Wi-Fi/network location
     },{enableHighAccuracy:high,maximumAge:2000,timeout:high?15000:30000});
 }
@@ -132,8 +287,7 @@ function sensorTick(){
   }
   if(SN.m)out.m=SN.m; if(SN.g)out.g=SN.g;
   if(dc&&dc.readyState==='open')dc.send(JSON.stringify(out));
-  if(++sstTick%10===0)$('sst').textContent='Sensors: '+(out.o?`heading ${Math.round(out.o.h)}°`:'no compass')+
-    ' · '+(out.m?'motion ok':'no motion')+' · '+(out.g?`${SN.gmode||'GPS'} ±${Math.round(out.g.acc)}m`:(SN.gerr||'waiting for GPS...'));
+  if(++sstTick%10===0)$('sst').textContent=[out.m?'Motion on':'No motion data',out.g?`${SN.gmode||'GPS'} within ${Math.round(out.g.acc)} m`:(SN.gerr||'Finding location…')].join(', ');
 }
-$('btn').onclick=()=>pc?stop():start().catch(e=>stop('Error: '+e.message));
+$('btn').onclick=()=>pc?stop():start().catch(e=>stop(`Couldn't start: ${e.message}`,true));
 </script></body></html>

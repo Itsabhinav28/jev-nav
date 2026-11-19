@@ -1,124 +1,424 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Stream Dashboard</title>
+<title>AccessWay · Live guidance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="icon" href="/brand/logo.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
-:root{color-scheme:dark;--bg:#0b0d10;--card:#14171c;--line:#2a2f37;--fg:#e8eaed;--mut:#9aa3ad;--acc:#2563eb}
+/* AccessWay theme (from the landing page): sage, mint, charcoal, soft amber, Inter, 1rem radius, soft shadows.
+   Safety signs keep fixed meanings and shapes: square = continue, triangle = caution, circle = do this, octagon = stop. */
+:root{
+  --paper:hsl(100 25% 95%); --panel:#FFFFFF; --ink:hsl(160 20% 15%); --ink-2:hsl(160 10% 40%); --rule:hsl(120 15% 85%); --well:hsl(120 30% 94%);
+  --brand:hsl(150 30% 55%); --brand-dark:hsl(150 25% 45%); --amber:hsl(38 85% 72%);
+  --go:hsl(150 32% 38%); --steer:hsl(205 55% 40%); --warn:hsl(38 88% 58%); --stop:hsl(0 70% 50%); --idle:hsl(160 8% 62%);
+  --on-go:#fff; --on-steer:#fff; --on-warn:hsl(160 20% 15%); --on-stop:#fff;
+  --focus:hsl(150 30% 40%); --stage:hsl(160 20% 12%);
+  --bg:linear-gradient(135deg,hsl(120 30% 94%) 0%,hsl(100 25% 95%) 50%,hsl(40 30% 96%) 100%);
+  --card-bg:linear-gradient(180deg,#fff 0%,hsl(120 30% 98%) 100%);
+  --cta:linear-gradient(135deg,hsl(150 30% 55%) 0%,hsl(150 35% 45%) 100%);
+  --shadow-soft:0 4px 20px -4px hsl(160 20% 15% / .08); --shadow-card:0 8px 30px -8px hsl(160 20% 15% / .1); --shadow-elevated:0 20px 50px -15px hsl(160 20% 15% / .15);
+  --r:1rem;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --paper:hsl(160 20% 8%); --panel:hsl(160 15% 12%); --ink:hsl(120 15% 95%); --ink-2:hsl(120 10% 65%); --rule:hsl(160 15% 20%); --well:hsl(160 15% 18%);
+  --brand:hsl(150 35% 50%); --brand-dark:hsl(150 35% 42%); --amber:hsl(38 70% 60%);
+  --go:hsl(150 38% 42%); --steer:hsl(205 60% 50%); --warn:hsl(38 85% 58%); --stop:hsl(0 72% 56%); --idle:hsl(160 8% 45%);
+  --focus:hsl(150 40% 60%); --stage:hsl(160 22% 6%);
+  --bg:linear-gradient(135deg,hsl(160 20% 9%) 0%,hsl(160 20% 8%) 60%,hsl(150 15% 10%) 100%);
+  --card-bg:linear-gradient(180deg,hsl(160 15% 12%) 0%,hsl(160 15% 11%) 100%);
+  --shadow-soft:0 4px 20px -4px hsl(0 0% 0% / .35); --shadow-card:0 8px 30px -8px hsl(0 0% 0% / .45); --shadow-elevated:0 20px 50px -15px hsl(0 0% 0% / .5);
+  color-scheme:dark;
+}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif}
-.wrap{max-width:1200px;margin:0 auto;padding:16px;display:grid;grid-template-columns:1fr 320px;gap:16px}
-@media(max-width:860px){.wrap{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
-h1{font-size:18px;margin:0 0 12px}h2{font-size:13px;color:var(--mut);margin:0 0 10px;text-transform:uppercase;letter-spacing:.06em}
-.view{aspect-ratio:16/9;background:#000;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
-.view img{max-width:100%;max-height:100%}
-.pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;background:#2a2f37}
-.pill.on{background:#14532d;color:#86efac}
-.stats{display:flex;gap:16px;margin-top:10px;color:var(--mut)}.stats b{color:var(--fg)}
-label{display:block;margin:10px 0 4px;color:var(--mut);font-size:12px}
-select,input[type=number]{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:#1c2128;color:var(--fg)}
-.chk{display:flex;gap:8px;align-items:center;margin-top:10px;color:var(--fg)}
-button{width:100%;margin-top:14px;padding:12px;border:0;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;font-size:14px;cursor:pointer}
-button.stop{background:#dc2626}button:disabled{opacity:.4;cursor:not-allowed}
-.qr{text-align:center}.qr img{width:200px;border-radius:8px;background:#fff;padding:6px}
-.sens{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-.kv{flex:1;min-width:220px;display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
-.kv span{display:block;color:var(--mut);font-size:12px}.kv b{font-size:15px}
-#map{height:280px;border-radius:8px;margin-top:14px;background:#1c2128}
-.note{margin-top:6px;font-size:12px;color:var(--mut)}
-code{word-break:break-all;color:var(--mut);font-size:12px}
-.res{margin-top:12px;font-size:12px;color:var(--mut);white-space:pre-wrap}
-.act{border-radius:10px;padding:14px 16px;font-size:28px;font-weight:700;letter-spacing:.02em;background:#2a2f37;color:var(--fg)}
-.act small{display:block;font-size:12px;font-weight:500;opacity:.85;letter-spacing:0;margin-top:2px}
-.act.info{background:#14532d;color:#bbf7d0}.act.caution{background:#78350f;color:#fde68a}.act.critical{background:#7f1d1d;color:#fecaca}
-.navgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:12px}
-@media(max-width:860px){.navgrid{grid-template-columns:1fr}}
-.navimg{background:#000;border-radius:8px;min-height:160px;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.navimg img{max-width:100%;max-height:360px}
-.why{margin:0;padding-left:18px;color:var(--mut);font-size:13px}.why li{margin:3px 0}
-.err{color:#fca5a5;font-size:12px;margin-top:8px;white-space:pre-wrap}
-.talk{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
-.said{list-style:none;margin:0 0 10px;padding:0;max-height:180px;overflow:auto;font-size:13px}
-.said li{padding:4px 0;color:var(--mut)}.said b{color:var(--fg);font-weight:600;margin-right:6px}
-.said .alert b{color:#fde68a}.said .nemotron b{color:#93c5fd}.said .you b{color:#86efac}
-.askrow{display:flex;gap:8px}.askrow input{flex:1;padding:9px;border-radius:8px;border:1px solid var(--line);background:#1c2128;color:var(--fg)}
-.askrow button{width:auto;margin:0;padding:9px 14px}
-</style></head><body><div class="wrap">
-<div style="display:grid;gap:16px;align-content:start;min-width:0">
-<div class="card">
-  <h1>Phone camera <span id="pill" class="pill">waiting</span></h1>
-  <div class="view" id="view"><span style="color:var(--mut)">Scan the QR code with your phone to start</span></div>
-  <div class="stats"><span>Resolution <b id="res">-</b></span><span>FPS <b id="fps">-</b></span><span id="cap"></span></div>
-</div>
-<div class="card" id="navcard"><h2>Jev navigation</h2>
-  <div class="act" id="act">Waiting for frames<small id="actsub">Jev analyses ~2 frames per second once the phone is live</small></div>
-  <div class="navgrid">
-    <div class="navimg" id="navimg"><span style="color:var(--mut)">Last analysed frame appears here</span></div>
-    <div>
-      <ul class="why" id="why"></ul>
-      <div class="stats" style="flex-wrap:wrap"><span>Latency <b id="nlat">-</b></span><span>Analysed <b id="nan">-</b></span><span>Skipped <b id="nsk">-</b></span><span>Cost <b id="ncost">-</b></span></div>
-      <div class="err" id="nerr"></div>
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg) fixed;background-color:var(--paper);color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:6px}
+[hidden]{display:none!important}
+code{white-space:nowrap;font-size:.92em}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+h2{font-size:1.05rem;font-weight:700;margin:0;letter-spacing:-.01em}
+p{margin:0}
+.muted{color:var(--ink-2)}
+
+/* ── top bar ─────────────────────────────── */
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:20px;padding:12px 32px;border-bottom:1px solid color-mix(in srgb,var(--rule) 60%,transparent);background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(14px);box-shadow:var(--shadow-soft);flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px;margin-right:auto;text-decoration:none;color:inherit}
+.brand img{height:40px;width:auto}
+.brand b{display:block;font-weight:700;font-size:1.2rem;letter-spacing:-.02em;line-height:1.1}
+.brand small{display:block;font-size:.66rem;color:var(--ink-2);font-weight:500;letter-spacing:.09em;text-transform:uppercase}
+.brand .sep{width:1px;height:28px;background:var(--rule);margin:0 4px}
+.brand .page{color:var(--ink-2);font-weight:500}
+.status{display:flex;gap:8px;flex-wrap:wrap;font-size:.88rem}
+.stat{display:flex;align-items:center;gap:7px;color:var(--ink-2);background:var(--panel);border:1px solid var(--rule);border-radius:99px;padding:6px 12px;box-shadow:var(--shadow-soft)}
+.stat strong{color:var(--ink);font-weight:500}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--idle);flex:none}
+.dot.ok{background:var(--brand)}.dot.bad{background:var(--stop)}.dot.warn{background:var(--warn)}
+.actions{display:flex;gap:8px}
+.btn{border:1px solid var(--rule);background:var(--panel);border-radius:12px;padding:9px 16px;cursor:pointer;font-weight:600;box-shadow:var(--shadow-soft);transition:transform .15s,box-shadow .15s}
+.btn:hover{box-shadow:var(--shadow-card);transform:translateY(-1px)}
+.btn.primary{background:var(--cta);color:#fff;border-color:transparent}
+.btn.danger{background:var(--stop);color:#fff;border-color:var(--stop)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* ── layout ──────────────────────────────── */
+main{max-width:1400px;margin:0 auto;padding:28px 32px 48px;display:grid;gap:24px}
+.hero{display:grid;grid-template-columns:minmax(330px,4fr) 8fr;gap:24px;align-items:stretch}
+.row3{display:grid;grid-template-columns:5fr 4fr 4fr;gap:24px}
+.row2{display:grid;grid-template-columns:7fr 5fr;gap:24px}
+@media (max-width:1100px){.hero,.row3,.row2{grid-template-columns:1fr}}
+.panel{background:var(--card-bg);border:1px solid color-mix(in srgb,var(--rule) 70%,transparent);border-radius:var(--r);padding:22px;box-shadow:var(--shadow-card)}
+.panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
+.panel-head .muted{font-size:.88rem}
+
+/* ── the guidance sign (hero) ────────────── */
+.guide{display:flex;flex-direction:column;gap:18px;padding:28px;border-radius:calc(var(--r) * 1.5);border:1px solid color-mix(in srgb,var(--rule) 70%,transparent);background:var(--card-bg);box-shadow:var(--shadow-elevated);position:relative;overflow:hidden}
+.guide::before{content:"";position:absolute;inset:0 0 auto 0;height:8px;background:var(--tone,var(--idle))}
+.guide-main{display:flex;gap:24px;align-items:center}
+.sign{width:132px;height:132px;flex:none}
+.sign svg{width:100%;height:100%;display:block}
+.say{min-width:0}
+.say h1{font-size:clamp(2.4rem,3.6vw,3.3rem);line-height:1;font-weight:800;letter-spacing:-.035em;margin:0 0 10px}
+.say .detail{font-size:1.2rem;line-height:1.35}
+.say .ttc{margin-top:6px;font-size:1rem;color:var(--ink-2)}
+.caption{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:12px;background:var(--well);font-size:1.02rem;border:1px solid color-mix(in srgb,var(--brand) 25%,transparent)}
+.caption svg{flex:none;margin-top:3px}
+.caption q{quotes:"\201C" "\201D"}
+.meter{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;font-size:.92rem}
+.bar{height:8px;border-radius:99px;background:var(--well);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--cta);border-radius:99px;transition:width .3s}
+details.why summary{cursor:pointer;font-weight:500;list-style:none;display:flex;gap:8px;align-items:center}
+details.why summary::-webkit-details-marker{display:none}
+details.why summary::before{content:"";width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s}
+details.why[open] summary::before{transform:rotate(45deg)}
+.why ul{margin:10px 0 0;padding-left:20px;color:var(--ink-2);font-size:.92rem}
+.why li{margin:3px 0;overflow-wrap:anywhere}
+.guide.changed .sign{animation:settle .42s cubic-bezier(.2,.9,.3,1.25)}
+@keyframes settle{0%{transform:scale(.86);opacity:.4}100%{transform:scale(1);opacity:1}}
+.guide.critical{box-shadow:0 0 0 3px var(--stop)}
+@media (prefers-reduced-motion:reduce){.guide.changed .sign{animation:none}.bar i{transition:none}}
+
+/* ── vision pair: live camera beside what the guide saw ── */
+.vision{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-width:0}
+@media (max-width:760px){.vision{grid-template-columns:1fr}}
+.pane{position:relative;background:var(--stage);border-radius:calc(var(--r) * 1.5);overflow:hidden;min-height:400px;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-elevated)}
+.pane img{width:100%;height:100%;max-height:600px;object-fit:contain;display:block}
+.pane .empty{color:hsl(120 15% 82%);text-align:center;padding:24px;max-width:30ch;font-size:.95rem}
+.pane .empty b{display:block;color:#fff;font-size:1.05rem;margin-bottom:6px}
+.view{margin:0;display:grid;grid-template-rows:auto 1fr;gap:10px;min-width:0}
+.view .label{display:flex;align-items:center;gap:8px;font-size:.92rem;font-weight:600;padding-left:4px}
+.view .label span{color:var(--ink-2);font-weight:400;margin-left:auto;font-size:.85rem}
+.view .label i{width:8px;height:8px;border-radius:50%;background:var(--idle)}
+.view .label i.on{background:hsl(0 72% 52%);box-shadow:0 0 0 3px hsl(0 72% 52% / .25)}
+.view .label i.seen{background:var(--brand)}
+.pane .meta{position:absolute;bottom:12px;right:12px;color:hsl(120 15% 88%);font-size:.8rem;background:hsl(160 20% 8% / .62);padding:4px 10px;border-radius:99px}
+
+/* ── conversation ────────────────────────── */
+.log{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:10px;max-height:260px;overflow:auto}
+.log li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}
+.who{font-size:.78rem;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;margin-top:2px}
+.who.alert{background:var(--amber);color:hsl(160 20% 15%)}
+.who.nemotron{background:var(--brand-dark);color:#fff}
+.who.you{background:var(--well);color:var(--ink)}
+.log .t{color:var(--ink-2);font-size:.82rem;margin-left:6px}
+.ask{display:flex;gap:8px}
+.ask input{flex:1;min-width:0;padding:11px 14px;border:1px solid var(--rule);border-radius:12px;background:var(--panel)}
+.ask input:focus{border-color:var(--brand)}
+.note{font-size:.88rem;color:var(--ink-2);margin-top:10px}
+.note.err{color:var(--stop)}
+.empty-line{color:var(--ink-2);font-size:.95rem}
+
+/* ── environment state (proposed) ────────── */
+.states{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.state{border:1.5px dashed var(--rule);border-radius:12px;padding:10px 12px;background:color-mix(in srgb,var(--well) 50%,transparent)}
+.state b{display:block;font-weight:700}
+.state span{font-size:.85rem;color:var(--ink-2)}
+.state.on{border-style:solid;border-color:var(--ink)}
+
+/* ── map placeholder ─────────────────────── */
+.hexart{display:block;width:100%;height:auto;margin:4px 0 12px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.85rem;color:var(--ink-2);margin-bottom:12px}
+.legend i{display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:6px;border-radius:3px}
+ol.steps{margin:0;padding-left:20px;font-size:.95rem}
+ol.steps li{margin:4px 0}
+
+/* ── motion & location ───────────────────── */
+.sens{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+.kv{flex:1;min-width:240px;display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
+.kv span{display:block;color:var(--ink-2);font-size:.85rem}
+.kv b{font-weight:500;font-size:1.05rem}
+#map{height:240px;border-radius:12px;margin-top:16px;background:var(--well)}
+
+/* ── record & session ────────────────────── */
+label.fld{display:block;margin:12px 0 6px;font-size:.9rem;color:var(--ink-2)}
+select,input[type=number]{width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:12px;background:var(--panel)}
+.chk{display:flex;gap:10px;align-items:center;margin-top:12px}
+.chk input{width:18px;height:18px;accent-color:var(--brand-dark)}
+.wide{width:100%;margin-top:16px;padding:12px}
+.figures{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.fig b{display:block;font-size:1.6rem;font-weight:700;line-height:1.1}
+.fig span{font-size:.88rem;color:var(--ink-2)}
+
+/* ── walker view (full screen) ───────────── */
+.walker{position:fixed;inset:0;z-index:50;background:var(--bg);background-color:var(--paper);display:none;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:32px;text-align:center}
+.walker.open{display:flex}
+.walker::before{content:"";position:absolute;inset:0 0 auto 0;height:16px;background:var(--tone,var(--idle))}
+.walker .sign{width:min(46vh,62vw);height:min(46vh,62vw)}
+.walker h1{font-size:clamp(3rem,10vw,7rem);line-height:1;font-weight:800;margin:0;letter-spacing:-.02em}
+.walker .detail{font-size:clamp(1.3rem,3vw,2rem);max-width:28ch}
+.walker .caption{font-size:clamp(1.1rem,2.4vw,1.6rem);max-width:40ch}
+.walker .close{position:absolute;top:28px;right:28px}
+
+/* ── connect dialog ──────────────────────── */
+dialog{border:1px solid var(--rule);border-radius:calc(var(--r) * 1.5);padding:28px;max-width:440px;background:var(--panel);color:var(--ink);box-shadow:var(--shadow-elevated)}
+dialog::backdrop{background:hsl(160 20% 15% / .4);backdrop-filter:blur(3px)}
+dialog img{width:220px;display:block;margin:16px auto;border-radius:10px;background:#fff;padding:8px}
+dialog code{display:block;text-align:center;overflow-wrap:anywhere;color:var(--ink-2);font-size:.9rem}
+dialog ol{padding-left:20px;margin:14px 0}
+</style></head>
+<body>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="AccessWay live guidance">
+    <img src="/brand/logo.png" alt="">
+    <span><b>AccessWay</b><small>Accessibility in motion</small></span>
+    <i class="sep" aria-hidden="true"></i><span class="page">Live guidance</span>
+  </a>
+  <div class="status" aria-label="System status">
+    <div class="stat"><i class="dot" id="srcDot"></i><span>Camera</span><strong id="srcText">Not connected</strong></div>
+    <div class="stat"><i class="dot" id="engDot"></i><span>Guidance</span><strong id="engText">Starting</strong></div>
+    <div class="stat"><i class="dot" id="vocDot"></i><span>Voice</span><strong id="vocText">Off</strong></div>
+  </div>
+  <div class="actions">
+    <button class="btn" id="connectBtn" type="button">Connect a phone</button>
+    <button class="btn primary" id="walkerBtn" type="button">Walker view</button>
+  </div>
+</header>
+
+<!-- Screen-reader announcements, ordered like the arbiter: hazards interrupt, everything else waits its turn -->
+<div class="sr" role="alert" aria-live="assertive" id="liveHazard"></div>
+<div class="sr" aria-live="polite" id="liveGuide"></div>
+
+<main>
+  <section class="hero" aria-label="Current guidance">
+    <article class="guide" id="guide" style="--tone:var(--idle)">
+      <div class="guide-main">
+        <div class="sign" id="sign" aria-hidden="true"></div>
+        <div class="say">
+          <h1 id="action">Waiting</h1>
+          <p class="detail" id="detail">Guidance starts as soon as a camera is live.</p>
+          <p class="ttc" id="ttc"></p>
+        </div>
+      </div>
+      <div class="caption" id="captionBox" hidden>
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4Z" fill="currentColor"/></svg>
+        <div><span class="muted" style="font-size:.85rem;display:block">Last spoken</span><q id="caption"></q></div>
+      </div>
+      <div class="meter">
+        <span>Confidence</span><div class="bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="confBar" aria-label="Confidence"><i id="confFill"></i></div><strong id="confText">–</strong>
+      </div>
+      <div class="meter" style="grid-template-columns:1fr auto">
+        <span class="muted" id="decidedText">No decision yet</span><span class="muted" id="activityText"></span>
+      </div>
+      <details class="why"><summary>Why this guidance</summary><ul id="why"><li>Reasons appear with the first decision.</li></ul></details>
+    </article>
+
+    <section class="vision" aria-label="Camera views">
+      <figure class="view">
+        <figcaption class="label"><i id="liveDot"></i>Live camera<span id="stageMeta"></span></figcaption>
+        <div class="pane" id="liveView"><div class="empty"><b>No camera yet</b>Connect a phone, or start the server with <code>--camera 0</code> to use this computer's camera.</div></div>
+      </figure>
+      <figure class="view">
+        <figcaption class="label"><i class="seen"></i>What the guide saw<span id="seenMeta"></span></figcaption>
+        <div class="pane" id="seenView"><div class="empty"><b>Nothing analysed yet</b>Each decision shows the frame it was based on, with what the guide found outlined.</div></div>
+      </figure>
+    </section>
+  </section>
+
+  <section class="row3">
+    <article class="panel" aria-labelledby="talkH">
+      <div class="panel-head"><h2 id="talkH">Conversation</h2><span class="muted" id="micText">Microphone off</span></div>
+      <ul class="log" id="log"><li class="empty-line" style="display:block">Alerts play the moment guidance changes. The narrator answers your questions, and speaks on its own only when the walker stands still and something new is ahead.</li></ul>
+      <form class="ask" id="askForm"><label class="sr" for="askQ">Ask the narrator</label><input id="askQ" placeholder="Ask about what's ahead" autocomplete="off"><button class="btn primary" type="submit">Ask</button></form>
+      <p class="note" id="voiceNote"></p>
+    </article>
+
+    <article class="panel" aria-labelledby="whereH">
+      <div class="panel-head"><h2 id="whereH">Where am I</h2><span class="muted">Needs a map</span></div>
+      <div class="states">
+        <div class="state"><b>Known place</b><span>Matches a saved map</span></div>
+        <div class="state"><b>New place</b><span>Clear view, no match</span></div>
+        <div class="state"><b>Partly known</b><span>Walking off the map</span></div>
+        <div class="state"><b>Lost</b><span>Pause and look around</span></div>
+      </div>
+      <p class="muted" style="font-size:.92rem">Place recognition turns on once this building has a map. Until then, guidance works from what the camera sees right now.</p>
+    </article>
+
+    <article class="panel" aria-labelledby="mapH">
+      <div class="panel-head"><h2 id="mapH">Map</h2><span class="muted">3D viewer not set up</span></div>
+      <svg class="hexart" viewBox="0 0 300 120" role="img" aria-label="Illustration of an empty hexagonal floor map">
+        <defs>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--panel)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--ink-2)" stroke-width="1.6"/></pattern>
+          <path id="hx" d="M0-14 12.1-7v14L0 14-12.1 7v-14Z"/>
+        </defs>
+        <g id="hexgrid"></g>
+      </svg>
+      <div class="legend"><span><i style="background:var(--go)"></i>Walkable</span><span><i style="background:var(--ink)"></i>Blocked</span><span><i style="background-image:repeating-linear-gradient(45deg,var(--ink-2) 0 2px,transparent 2px 5px);border:1px solid var(--rule)"></i>Unverified</span></div>
+      <p style="font-weight:500;margin-bottom:6px">No map for this building yet</p>
+      <ol class="steps"><li>Record a walk through the building</li><li>Reconstruct it on a GPU after the walk</li><li>Review the floor map and 3D view here</li></ol>
+    </article>
+  </section>
+
+  <section class="row2">
+    <article class="panel" aria-labelledby="motionH">
+      <div class="panel-head"><h2 id="motionH">Motion and location</h2><span class="muted" id="sensNote">From the phone's sensors</span></div>
+      <div class="sens">
+        <canvas id="compass" width="170" height="170" aria-label="Compass" role="img"></canvas>
+        <div class="kv">
+          <div><span>Walker is</span><b id="mv">–</b></div>
+          <div><span>Facing</span><b id="hd">–</b></div>
+          <div><span>Camera tilt</span><b id="pt">–</b></div>
+          <div><span>Speed</span><b id="sp">–</b></div>
+          <div><span>Steadiness</span><b id="sd">–</b></div>
+          <div><span>Location</span><b id="gp">–</b></div>
+        </div>
+      </div>
+      <div id="map"></div>
+      <p class="note" id="mapnote"></p>
+    </article>
+
+    <div style="display:grid;gap:24px;align-content:start">
+      <article class="panel" aria-labelledby="sessH">
+        <div class="panel-head"><h2 id="sessH">This session</h2></div>
+        <div class="figures">
+          <div class="fig"><b id="fDecisions">0</b><span>Decisions made</span></div>
+          <div class="fig"><b id="fTime">–</b><span>Time per decision</span></div>
+          <div class="fig"><b id="fSkipped">0</b><span>Frames skipped while busy</span></div>
+          <div class="fig"><b id="fCost">$0.00</b><span>Guidance cost</span></div>
+        </div>
+      </article>
+
+      <article class="panel" aria-labelledby="recH">
+        <div class="panel-head"><h2 id="recH">Record session</h2><span class="muted" id="recState"></span></div>
+        <label class="fld" for="fpsSel">Save a still image</label>
+        <select id="fpsSel"><option value="1">Every second</option><option value="2">2 per second</option><option value="5">5 per second</option><option value="10" selected>10 per second</option><option value="30">Every frame (30 per second)</option><option value="custom">Custom rate…</option></select>
+        <input id="fpsCustom" type="number" min="0.1" max="60" step="0.1" placeholder="Stills per second, e.g. 0.5" style="display:none;margin-top:8px" aria-label="Custom stills per second">
+        <label class="fld" for="fmt">Image format</label>
+        <select id="fmt"><option value="jpg">JPG, smaller files</option><option value="png">PNG, no quality loss</option></select>
+        <label class="chk"><input type="checkbox" id="frames" checked> Save still images</label>
+        <label class="chk"><input type="checkbox" id="rec" checked> Save the full video</label>
+        <button class="btn primary wide" id="go" type="button" disabled>Start recording</button>
+        <p class="note" id="out"></p>
+      </article>
     </div>
-  </div>
-  <div class="talk">
-    <h2>Voice <span class="pill" id="vpill">off</span></h2>
-    <ul class="said" id="said"><li>Nothing said yet. Alerts speak only when the action changes; Nemotron speaks when you ask, or when you stand still and something new is ahead.</li></ul>
-    <form class="askrow" id="askform"><input id="askq" placeholder="Ask Nemotron, e.g. what's in front of me?" autocomplete="off"><button>Ask</button></form>
-    <div class="err" id="verr"></div>
-  </div>
+  </section>
+</main>
+
+<div class="walker" id="walker" role="dialog" aria-modal="true" aria-label="Walker view">
+  <button class="btn close" id="walkerClose" type="button">Close</button>
+  <div class="sign" id="wSign" aria-hidden="true"></div>
+  <h1 id="wAction">Waiting</h1>
+  <p class="detail" id="wDetail"></p>
+  <div class="caption" id="wCaptionBox" hidden><q id="wCaption"></q></div>
 </div>
-<div class="card"><h2>Phone sensors</h2>
-  <div class="sens">
-    <canvas id="compass" width="170" height="170"></canvas>
-    <div class="kv">
-      <div><span>Activity</span><b id="mv">-</b></div>
-      <div><span>Looking at</span><b id="hd">-</b></div>
-      <div><span>Camera tilt</span><b id="pt">-</b></div>
-      <div><span>Speed</span><b id="sp">-</b></div>
-      <div><span>Shake (accel &sigma;)</span><b id="sd">-</b></div>
-      <div><span>GPS</span><b id="gp">-</b></div>
-    </div>
-  </div>
-  <div id="map"></div>
-  <div class="note" id="mapnote"></div>
-</div>
-</div>
-<div style="display:grid;gap:16px;align-content:start">
-  <div class="card qr"><h2>Connect phone (same Wi-Fi)</h2><img src="/qr.png"><p><code id="url"></code></p></div>
-  <div class="card"><h2>Capture with FFmpeg</h2>
-    <label>Frame extraction rate</label>
-    <select id="fpsSel"><option>1</option><option>2</option><option>5</option><option selected>10</option><option>15</option><option>24</option><option>30</option><option value="custom">Custom...</option></select>
-    <input id="fpsCustom" type="number" min="0.1" max="60" step="0.1" placeholder="fps, e.g. 0.5" style="display:none;margin-top:6px">
-    <label>Image format</label>
-    <select id="fmt"><option value="jpg">JPG (small)</option><option value="png">PNG (lossless)</option></select>
-    <label class="chk"><input type="checkbox" id="frames" checked> Save frames</label>
-    <label class="chk" style="margin-top:4px"><input type="checkbox" id="rec" checked> Record full video (MP4)</label>
-    <button id="go" disabled>Start capture</button>
-    <div class="res" id="out"></div>
-  </div>
-</div></div>
+
+<dialog id="connect" aria-labelledby="connectH">
+  <h2 id="connectH">Connect a phone</h2>
+  <img src="/qr.png" alt="QR code with the phone link">
+  <code id="url"></code>
+  <ol>
+    <li>Join the same Wi-Fi as this computer.</li>
+    <li>Scan the code. Your phone warns about the certificate: choose to continue.</li>
+    <li>Tap Start guidance, then allow the camera and motion sensors.</li>
+  </ol>
+  <p class="note">If the page never loads, this computer's firewall may block incoming connections. Use its own camera instead: start the server with <code style="display:inline">--camera 0</code>.</p>
+  <form method="dialog"><button class="btn primary wide">Done</button></form>
+</dialog>
+
 <script>
 const $=id=>document.getElementById(id);
-fetch('/api/info').then(r=>r.json()).then(j=>$('url').textContent=j.phone_url);
-$('fpsSel').onchange=()=>$('fpsCustom').style.display=$('fpsSel').value==='custom'?'block':'none';
-let live=false,capturing=false;
+
+/* ── sign glyphs: colour + shape + text, never colour alone ── */
+const ARROW_UP='<path d="M50 28 70 52H58v22H42V52H30Z" fill="currentColor"/>';
+const SIGNS={
+  go:   g=>`<svg viewBox="0 0 100 100"><rect x="6" y="6" width="88" height="88" rx="10" fill="var(--go)"/><g color="var(--on-go)">${g}</g></svg>`,
+  steer:g=>`<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="var(--steer)"/><g color="var(--on-steer)">${g}</g></svg>`,
+  warn: g=>`<svg viewBox="0 0 100 100"><path d="M50 8 95 88H5Z" fill="var(--warn)" stroke="var(--warn)" stroke-width="8" stroke-linejoin="round"/><g color="var(--on-warn)" transform="translate(0 10)">${g}</g></svg>`,
+  stop: g=>`<svg viewBox="0 0 100 100"><path d="M32 6h36l26 26v36L68 94H32L6 68V32Z" fill="var(--stop)" stroke="var(--stop)" stroke-width="6" stroke-linejoin="round"/><g color="var(--on-stop)">${g}</g></svg>`,
+  idle: ()=>`<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="43" fill="none" stroke="var(--idle)" stroke-width="4" stroke-dasharray="8 8"/></svg>`,
+};
+const G={
+  up:ARROW_UP,
+  left:'<path d="M66 72V46c0-6-4-10-10-10H44V24L24 42l20 18V48h10v24Z" fill="currentColor"/>',
+  right:'<path d="M34 72V46c0-6 4-10 10-10h12V24l20 18-20 18V48H46v24Z" fill="currentColor"/>',
+  bar:'<rect x="22" y="42" width="56" height="16" rx="3" fill="currentColor"/>',
+  bang:'<rect x="45" y="30" width="10" height="28" rx="3" fill="currentColor"/><circle cx="50" cy="68" r="6" fill="currentColor"/>',
+  pause:'<rect x="38" y="32" width="9" height="36" rx="2" fill="currentColor"/><rect x="53" y="32" width="9" height="36" rx="2" fill="currentColor"/>',
+  stairs:'<path d="M24 74h14V62h12V50h12V38h14v8h-6v12H58v12H46v12H24Z" fill="currentColor"/>',
+  stairsUp:'<path d="M22 76h12V66h10V56h10V46h12v8h-6v10H50v10H40v10H22Z" fill="currentColor"/><path d="M66 22l12 13h-7v8h-10v-8h-7Z" fill="currentColor"/>',
+  stairsDown:'<path d="M22 76h12V66h10V56h10V46h12v8h-6v10H50v10H40v10H22Z" fill="currentColor"/><path d="M66 44l12-13h-7v-8h-10v8h-7Z" fill="currentColor"/>',
+};
+const ACTIONS={
+  MOVE_FORWARD:{label:'Continue',tone:'go',sign:SIGNS.go(G.up)},
+  SLOW_DOWN:{label:'Slow down',tone:'warn',sign:SIGNS.warn(G.bang)},
+  WAIT:{label:'Wait',tone:'warn',sign:SIGNS.warn(G.pause)},
+  GO_LEFT:{label:'Bear left',tone:'steer',sign:SIGNS.steer(G.left)},
+  GO_RIGHT:{label:'Bear right',tone:'steer',sign:SIGNS.steer(G.right)},
+  STOP:{label:'Stop',tone:'stop',sign:SIGNS.stop(G.bar)},
+  STOP_AT_STAIRS:{label:'Stop: stairs',tone:'stop',sign:SIGNS.stop(G.stairs)},
+  CLIMB_UP:{label:'Stairs up',tone:'steer',sign:SIGNS.steer(G.stairsUp)},
+  CLIMB_DOWN:{label:'Stairs down',tone:'steer',sign:SIGNS.steer(G.stairsDown)},
+};
+const HAZARD={person:'Person',moving_vehicle_or_cycle:'Moving vehicle or cycle',stairs_up:'Stairs going up',stairs_down:'Stairs going down',
+  fixed_obstacle:'Obstacle',ground_hazard:'Uneven ground',overhead_hazard:'Something at head height',cannot_see:"Camera can't see clearly",stairs:'Stairs'};
+const DIST={near:'within 2 steps',mid:'2 to 6 steps ahead',far:'further ahead'};
+const ACTIVITY={standing:'Standing still',walking:'Walking',turning:'Turning',climbing:'On stairs',unknown:'Activity unknown'};
+
+function detailFor(d){
+  if(d.action==='MOVE_FORWARD') return 'No hazard detected ahead.';        // never "path is clear"
+  const h=HAZARD[d.hazard_kind]; const where=DIST[d.distance];
+  if(d.action==='CLIMB_UP'||d.action==='CLIMB_DOWN') return 'One step at a time. Hold the rail if there is one.';
+  if(h&&where&&d.hazard_kind!=='cannot_see') return `${h} ${where}.`;
+  if(h) return `${h}.`;
+  if(d.action==='WAIT') return 'Something is crossing the path.';
+  return 'Something needs care ahead.';
+}
+function setSign(el,cfg){ el.innerHTML=cfg?cfg.sign:SIGNS.idle(); }
+setSign($('sign')); setSign($('wSign'));
+
+/* ── status + live view ── */
+let live=false,capturing=false,lastFrame=-1,lastAction=null,lastSpokenKey='';
+function setDot(id,cls){$(id).className='dot'+(cls?' '+cls:'');}
+function renderLive(){
+  $('liveDot').className=live?'on':'';
+  if(!live){ $('liveView').innerHTML='<div class="empty"><b>No camera yet</b>Connect a phone, or start the server with <code>--camera 0</code> to use this computer\'s camera.</div>'; $('stageMeta').textContent=''; return; }
+  if(!$('liveView').querySelector('img')) $('liveView').innerHTML='<img src="/preview.mjpg" alt="Live camera">';
+}
+function renderSeen(d){
+  // swap only once the new frame has loaded, so the pane never flashes empty
+  const img=new Image(); img.alt='Last frame the guide analysed, with what it found outlined';
+  img.onload=()=>$('seenView').replaceChildren(img);
+  img.src=`/nav.jpg?f=${d.frame_index}`;
+}
 async function tick(){
   try{
     const s=await (await fetch('/api/status')).json();
-    $('pill').textContent=s.connected?'live':'waiting'; $('pill').className='pill'+(s.connected?' on':'');
-    $('res').textContent=s.resolution||'-'; $('fps').textContent=s.connected?s.fps:'-';
-    if(s.connected&&!live){$('view').innerHTML='<img src="/preview.mjpg">';}
-    if(!s.connected&&live){$('view').innerHTML='<span style="color:var(--mut)">Phone disconnected</span>';}
-    live=s.connected; capturing=s.capturing;
-    $('go').disabled=!live&&!capturing; $('go').textContent=capturing?'Stop capture':'Start capture';
-    $('go').className=capturing?'stop':'';
-    $('cap').innerHTML=s.capture?`<b>REC</b> ${s.capture.seconds}s - ${s.capture.frames_in} frames in, ${s.capture.dropped} dropped`:'';
+    const was=live; live=s.connected; capturing=s.capturing;
+    setDot('srcDot',live?'ok':''); $('srcText').textContent=live?(s.source==='camera'?"This computer's camera":'Phone'):'Not connected';
+    if(live!==was) renderLive();
+    $('stageMeta').textContent=live?`${s.resolution}, ${Math.round(s.fps)} fps`:'';
+    $('sensNote').textContent=s.source==='camera'?'Phone sensors only: not available with this camera':"From the phone's sensors";
+    $('go').disabled=!live&&!capturing; $('go').textContent=capturing?'Stop recording':'Start recording'; $('go').className='btn wide '+(capturing?'danger':'primary');
+    $('recState').textContent=s.capture?`Recording ${Math.round(s.capture.seconds)} s`:'';
     if(!capturing&&s.last_result){const r=s.last_result;
-      $('out').textContent=`Saved ${r.frames_saved} frames (${r.seconds}s)\n${r.dir}`+(r.ffmpeg_error?`\nFFmpeg: ${r.ffmpeg_error}`:'');}
-  }catch(e){}
+      $('out').textContent=`Saved ${r.frames_saved} stills over ${r.seconds} s in ${r.dir}`+(r.ffmpeg_error?`. FFmpeg reported: ${r.ffmpeg_error}`:'');}
+  }catch(e){ setDot('srcDot','bad'); $('srcText').textContent='Server not reachable'; }
 }
+$('fpsSel').onchange=()=>$('fpsCustom').style.display=$('fpsSel').value==='custom'?'block':'none';
 $('go').onclick=async()=>{
   $('go').disabled=true;
   if(capturing){await fetch('/api/capture/stop',{method:'POST'});}
@@ -132,89 +432,130 @@ $('go').onclick=async()=>{
 };
 setInterval(tick,1000);tick();
 
-// ---------- sensors: compass + status + map ----------
-const DIRS=['N','NE','E','SE','S','SW','W','NW'];
+/* ── guidance ── */
+function ago(sec){ return sec<1.5?'just now':`${Math.round(sec)} s ago`; }
+let lastDecisionAt=0;
+async function navTick(){
+  let n; try{ n=await (await fetch('/api/nav')).json(); }catch(e){ return; }
+  if(!n.enabled){ setDot('engDot','bad'); $('engText').textContent='Off'; $('detail').textContent=n.error?`Guidance is off: ${n.error}`:'Guidance is off for this session.'; return; }
+  setDot('engDot',n.error?'bad':(n.decision?'ok':'')); $('engText').textContent=n.error?'Error':(n.latency_s?`${n.latency_s.toFixed(1)} s per decision`:'Ready');
+  setDot('vocDot',n.voice?(n.voice_error?'warn':'ok'):''); $('vocText').textContent=n.voice?(n.mic?'Speaking and listening':'Speaking'):'Off';
+  $('micText').textContent=n.mic?'Listening':'Microphone off';
+  $('voiceNote').textContent=n.voice_error||(n.voice?'':'Voice is off. Start the server with --voice or --mic to hear guidance.'); $('voiceNote').className='note'+(n.voice_error?' err':'');
+  $('fDecisions').textContent=n.frames_analysed; $('fSkipped').textContent=n.frames_skipped;
+  $('fTime').textContent=n.latency_s?`${n.latency_s.toFixed(1)} s`:'–'; $('fCost').textContent='$'+n.cost_usd.toFixed(n.cost_usd<1?3:2);
+  if(n.error) $('detail').textContent=`Guidance error: ${n.error}`;
+  renderLog(n.spoken||[]);
+  const d=n.decision; if(!d) return;
+
+  const cfg=ACTIONS[d.action]||{label:d.action,tone:'idle'};
+  const changed=d.action!==lastAction;
+  const guide=$('guide');
+  guide.style.setProperty('--tone',`var(--${cfg.tone})`); $('walker').style.setProperty('--tone',`var(--${cfg.tone})`);
+  guide.classList.toggle('critical',d.urgency==='critical');
+  if(changed){
+    setSign($('sign'),cfg); setSign($('wSign'),cfg);
+    guide.classList.remove('changed'); void guide.offsetWidth; guide.classList.add('changed');
+    const msg=`${cfg.label}. ${detailFor(d)}`;
+    if(d.urgency==='critical') $('liveHazard').textContent=msg; else $('liveGuide').textContent=msg;
+  }
+  lastAction=d.action;
+  $('action').textContent=cfg.label; $('wAction').textContent=cfg.label;
+  $('detail').textContent=detailFor(d); $('wDetail').textContent=detailFor(d);
+  $('ttc').textContent=d.ttc_s!=null&&d.ttc_s<10&&d.hazard_kind!=='cannot_see'&&d.action!=='MOVE_FORWARD'?`At this pace, you reach it in about ${d.ttc_s.toFixed(1)} s.`:'';
+  const c=Math.round((d.confidence||0)*100);
+  $('confFill').style.width=c+'%'; $('confBar').setAttribute('aria-valuenow',c); $('confText').textContent=c+'%';
+  if(d.frame_index!==lastFrame){ lastFrame=d.frame_index; lastDecisionAt=Date.now(); renderSeen(d); }
+  $('seenMeta').textContent=`Decision ${d.frame_index+1}`+(n.latency_s?`, ${n.latency_s.toFixed(1)} s to decide`:'');
+  $('activityText').textContent=ACTIVITY[d.activity]||'';
+  $('why').replaceChildren(...d.reasons.map(r=>{const li=document.createElement('li');li.textContent=r;return li;}));
+}
+setInterval(()=>{ if(lastDecisionAt) $('decidedText').textContent='Decided '+ago((Date.now()-lastDecisionAt)/1000); },500);
+setInterval(navTick,500);navTick();
+
+/* ── conversation ── */
+const WHO={alert:'Alert',nemotron:'Narrator',you:'You'};
+function renderLog(items){
+  const key=items.length?JSON.stringify(items[items.length-1])+items.length:'';
+  if(!items.length||key===lastSpokenKey) return; lastSpokenKey=key;
+  $('log').replaceChildren(...items.slice().reverse().map(x=>{
+    const li=document.createElement('li'); const b=document.createElement('span'); b.className='who '+x.who; b.textContent=WHO[x.who]||x.who;
+    const p=document.createElement('span'); p.textContent=x.text==='(spoke)'?'(spoke to the narrator)':x.text;
+    const t=document.createElement('span'); t.className='t'; t.textContent=`${x.t} s`; p.append(t); li.append(b,p); return li;}));
+  const lastSpoken=[...items].reverse().find(x=>x.who!=='you');
+  if(lastSpoken){ $('caption').textContent=lastSpoken.text; $('wCaption').textContent=lastSpoken.text; $('captionBox').hidden=false; $('wCaptionBox').hidden=false; }
+}
+$('askForm').onsubmit=async e=>{
+  e.preventDefault(); const text=$('askQ').value.trim(); if(!text) return; $('askQ').value='';
+  const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+  if(!r.ok){ $('voiceNote').textContent=(await r.json()).error; $('voiceNote').className='note err'; }
+};
+
+/* ── walker view + connect dialog ── */
+$('walkerBtn').onclick=()=>{ $('walker').classList.add('open'); $('walkerClose').focus(); };
+$('walkerClose').onclick=()=>{ $('walker').classList.remove('open'); $('walkerBtn').focus(); };
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$('walker').classList.contains('open')) $('walkerClose').click(); });
+$('connectBtn').onclick=()=>$('connect').showModal();
+fetch('/api/info').then(r=>r.json()).then(j=>$('url').textContent=j.phone_url);
+
+/* ── hex illustration: an empty floor waiting for its first map ── */
+(function(){
+  const g=$('hexgrid'); const w=24.2,h=21,cols=11; let out=''; const x0=(300-(cols-1)*w-w/2)/2;
+  for(let r=0;r<5;r++)for(let q=0;q<cols;q++){
+    const x=x0+q*w+(r%2?w/2:0), y=18+r*h; const k=(q*7+r*3)%11;
+    const fill=k===0?'var(--go)':k===4?'var(--ink)':k===7?'url(#hatch)':'var(--well)';
+    out+=`<use href="#hx" x="${x}" y="${y}" fill="${fill}" stroke="var(--panel)" stroke-width="2" opacity="${fill==='var(--well)'?1:.9}"/>`;
+  }
+  g.innerHTML=out;
+})();
+
+/* ── motion & location: compass + map ── */
+const DIRS=['north','north-east','east','south-east','south','south-west','west','north-west'];
 const cardinal=h=>DIRS[Math.round(h/45)%8];
-function drawCompass(h){
-  const c=$('compass'),x=c.getContext('2d'),R=80,cx=85,cy=85;
-  const css=getComputedStyle(document.documentElement);
-  x.clearRect(0,0,170,170);
-  x.strokeStyle='#2a2f37';x.lineWidth=2;x.beginPath();x.arc(cx,cy,R,0,7);x.stroke();
-  x.fillStyle='#9aa3ad';x.font='12px system-ui';x.textAlign='center';x.textBaseline='middle';
-  [['N',0],['E',90],['S',180],['W',270]].forEach(([t,a])=>{
-    const r=(a-(h||0))*Math.PI/180; // dial rotates so the camera direction is always up
-    x.fillStyle=t==='N'?'#f87171':'#9aa3ad';
-    x.fillText(t,cx+Math.sin(r)*(R-12),cy-Math.cos(r)*(R-12));});
-  if(h==null)return;
-  x.fillStyle='#2563eb';x.beginPath();x.moveTo(cx,cy-52);x.lineTo(cx-13,cy+16);x.lineTo(cx,cy+6);x.lineTo(cx+13,cy+16);x.closePath();x.fill();
+function drawCompass(hd){
+  const c=$('compass'),x=c.getContext('2d'),R=78,cx=85,cy=85, css=getComputedStyle(document.documentElement);
+  const ink=css.getPropertyValue('--ink').trim(), mut=css.getPropertyValue('--ink-2').trim(), rule=css.getPropertyValue('--rule').trim(), stop=css.getPropertyValue('--stop').trim(), steer=css.getPropertyValue('--steer').trim();
+  x.clearRect(0,0,170,170); x.strokeStyle=rule; x.lineWidth=2; x.beginPath(); x.arc(cx,cy,R,0,7); x.stroke();
+  x.font='600 13px Inter,system-ui'; x.textAlign='center'; x.textBaseline='middle';
+  [['N',0],['E',90],['S',180],['W',270]].forEach(([t,a])=>{ const r=(a-(hd||0))*Math.PI/180; x.fillStyle=t==='N'?stop:mut; x.fillText(t,cx+Math.sin(r)*(R-14),cy-Math.cos(r)*(R-14)); });
+  if(hd==null) return;
+  x.fillStyle=steer; x.beginPath(); x.moveTo(cx,cy-50); x.lineTo(cx-13,cy+16); x.lineTo(cx,cy+6); x.lineTo(cx+13,cy+16); x.closePath(); x.fill();
 }
 drawCompass(null);
-
 let map=null,me=null,fov=null,trail=null,firstFix=true;
 function initMap(){
-  if(map||!window.L){return;}
-  map=L.map('map',{zoomControl:true}).setView([20,78],4);
+  if(map||!window.L) return;
+  map=L.map('map',{zoomControl:true,attributionControl:true}).setView([28.6,77.2],4);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);
-  trail=L.polyline([],{color:'#2563eb',weight:3}).addTo(map);
-  fov=L.polygon([],{color:'#2563eb',weight:1,fillOpacity:.25}).addTo(map);
-  me=L.circleMarker([0,0],{radius:7,color:'#fff',weight:2,fillColor:'#2563eb',fillOpacity:1});
+  trail=L.polyline([],{color:'#5E9E7E',weight:3}).addTo(map);
+  fov=L.polygon([],{color:'#5E9E7E',weight:1,fillOpacity:.2}).addTo(map);
+  me=L.circleMarker([0,0],{radius:7,color:'#fff',weight:2,fillColor:'#5E9E7E',fillOpacity:1});
 }
 function dest(lat,lon,brg,d){const R=6371000,b=brg*Math.PI/180,p=lat*Math.PI/180,l=lon*Math.PI/180,a=d/R;
   const p2=Math.asin(Math.sin(p)*Math.cos(a)+Math.cos(p)*Math.sin(a)*Math.cos(b));
   const l2=l+Math.atan2(Math.sin(b)*Math.sin(a)*Math.cos(p),Math.cos(a)-Math.sin(p)*Math.sin(p2));
   return [p2*180/Math.PI,l2*180/Math.PI];}
 initMap();
-if(!window.L)$('mapnote').textContent='Map needs internet on the laptop (Leaflet/OpenStreetMap). Other sensor data still works.';
-
+if(!window.L) $('mapnote').textContent="The map needs this computer to be online. Everything else still works.";
+const STATE={still:'Standing still','holding (steady)':'Holding steady',walking:'Walking',running:'Running','in vehicle':'In a vehicle',unknown:'Unknown'};
 async function sensorTick(){
-  let s=null;
-  try{ s=(await (await fetch('/api/sensors')).json()).sensors; }catch(e){}
-  if(!s){ ['mv','hd','pt','sp','sd','gp'].forEach(i=>$(i).textContent='-'); drawCompass(null); return; }
-  $('mv').textContent=s.state;
-  $('hd').textContent=s.heading==null?'-':`${Math.round(s.heading)}° ${cardinal(s.heading)}`+(s.abs?'':' (relative)');
-  $('pt').textContent=s.pitch==null?'-':`${s.pitch>15?'up':s.pitch<-15?'down':'level'} (${Math.round(s.pitch)}°)`;
-  $('sp').textContent=s.speed_ms==null?'-':`${(s.speed_ms*3.6).toFixed(1)} km/h`;
-  $('sd').textContent=s.accel_std==null?'-':s.accel_std.toFixed(2);
-  $('gp').textContent=s.lat==null?'no fix yet':`±${Math.round(s.gps_acc)} m`;
+  let s=null; try{ s=(await (await fetch('/api/sensors')).json()).sensors; }catch(e){}
+  if(!s){ ['mv','hd','pt','sp','sd','gp'].forEach(i=>$(i).textContent='–'); drawCompass(null); return; }
+  $('mv').textContent=STATE[s.state]||s.state;
+  $('hd').textContent=s.heading==null?'–':`${cardinal(s.heading)}, ${Math.round(s.heading)}°`+(s.abs?'':' (relative)');
+  $('pt').textContent=s.pitch==null?'–':(s.pitch>15?'Pointing up':s.pitch<-15?'Pointing down':'Level')+` (${Math.round(s.pitch)}°)`;
+  $('sp').textContent=s.speed_ms==null?'–':`${(s.speed_ms*3.6).toFixed(1)} km/h`;
+  $('sd').textContent=s.accel_std==null?'–':(s.accel_std<0.12?'Very steady':s.accel_std<0.6?'Steady':s.accel_std<2.5?'Moving':'Shaking');
+  $('gp').textContent=s.lat==null?'No fix yet':`Within ${Math.round(s.gps_acc)} m`;
   drawCompass(s.heading);
   if(s.lat!=null&&map&&me){
-    const p=[s.lat,s.lon];
-    if(!map.hasLayer(me))me.addTo(map);
-    me.setLatLng(p);
-    const last=trail.getLatLngs().slice(-1)[0];
-    if(!last||map.distance(last,p)>2)trail.addLatLng(p);
-    if(s.heading!=null)fov.setLatLngs([p,dest(s.lat,s.lon,s.heading-30,30),dest(s.lat,s.lon,s.heading,34),dest(s.lat,s.lon,s.heading+30,30)]);
-    if(firstFix){map.setView(p,18);firstFix=false;}
-    else if(!map.getBounds().pad(-0.2).contains(p))map.panTo(p);
+    const p=[s.lat,s.lon]; if(!map.hasLayer(me)) me.addTo(map); me.setLatLng(p);
+    const last=trail.getLatLngs().slice(-1)[0]; if(!last||map.distance(last,p)>2) trail.addLatLng(p);
+    if(s.heading!=null) fov.setLatLngs([p,dest(s.lat,s.lon,s.heading-30,30),dest(s.lat,s.lon,s.heading,34),dest(s.lat,s.lon,s.heading+30,30)]);
+    if(firstFix){map.setView(p,18);firstFix=false;} else if(!map.getBounds().pad(-0.2).contains(p)) map.panTo(p);
   }
 }
 setInterval(sensorTick,300);
-
-// ---------- Jev navigation ----------
-const ACTION_TEXT={MOVE_FORWARD:'Move forward',SLOW_DOWN:'Slow down',STOP:'Stop',WAIT:'Wait',GO_LEFT:'Step left',GO_RIGHT:'Step right',
-  STOP_AT_STAIRS:'Stop at stairs',CLIMB_UP:'Climb up',CLIMB_DOWN:'Climb down'};
-let lastNavFrame=-1;
-async function navTick(){
-  let n=null;
-  try{ n=await (await fetch('/api/nav')).json(); }catch(e){ return; }
-  if(!n.enabled){ $('act').className='act'; $('act').firstChild.textContent='Jev is off'; $('actsub').textContent=n.error||'Started with --no-jev'; return; }
-  $('nerr').textContent=n.error?('Jev error: '+n.error):'';
-  $('nlat').textContent=n.latency_s?n.latency_s+' s':'-'; $('nan').textContent=n.frames_analysed; $('nsk').textContent=n.frames_skipped;
-  $('ncost').textContent='$'+n.cost_usd.toFixed(4);
-  $('vpill').textContent=n.voice?(n.mic?'speaking + listening':'speaking'):'off'; $('vpill').className='pill'+(n.voice?' on':'');
-  $('verr').textContent=n.voice_error||'';
-  if(n.spoken&&n.spoken.length){ $('said').replaceChildren(...n.spoken.slice().reverse().map(x=>{const li=document.createElement('li');li.className=x.who;
-    const b=document.createElement('b');b.textContent={alert:'Alert',nemotron:'Nemotron',you:'You'}[x.who]||x.who;li.append(b,`${x.text}  · ${x.t}s`);return li;})); }
-  const d=n.decision; if(!d) return;
-  $('act').className='act '+d.urgency;
-  $('act').firstChild.textContent=ACTION_TEXT[d.action]||d.action;
-  $('actsub').textContent=`${d.urgency} · ${d.activity}`+(d.ttc_s!=null?` · contact in ${d.ttc_s.toFixed(1)} s`:'')+(d.stairs_mode!=='normal'?` · stairs: ${d.stairs_mode}`:'');
-  $('why').innerHTML=''; d.reasons.forEach(r=>{const li=document.createElement('li');li.textContent=r;$('why').appendChild(li);});
-  if(d.frame_index!==lastNavFrame){ lastNavFrame=d.frame_index;
-    const img=new Image(); img.onload=()=>{$('navimg').replaceChildren(img);}; img.src='/nav.jpg?f='+d.frame_index; }
-}
-setInterval(navTick,500);navTick();
-$('askform').onsubmit=async e=>{e.preventDefault(); const text=$('askq').value.trim(); if(!text)return; $('askq').value='';
-  const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
-  if(!r.ok)$('verr').textContent=(await r.json()).error; };
-</script></body></html>
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>drawCompass(null));
+</script>
+</body></html>
