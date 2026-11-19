@@ -47,3 +47,28 @@ def test_receding_object_has_no_ttc_and_is_remembered_when_it_leaves():
     assert info["person_ahead"].ttc_s is None
     gone = tr.update(1.0, _perc(None))
     assert gone["person_ahead"].remembered_side == "left"
+
+
+def test_box_jumping_to_another_object_is_not_an_approach():
+    tr = Tracker()
+    tr.update(0.0, _perc(BBox(top=0.6, bottom=0.7, left=0.4, right=0.5)))
+    info = tr.update(0.5, _perc(BBox(top=0.1, bottom=0.7, left=0.1, right=0.5)))  # area ×16 in one frame
+    assert info["person_ahead"].ttc_s is None
+
+
+def test_far_boxes_have_no_ttc():
+    tr = Tracker()
+    tr.update(0.0, _perc(BBox(top=0.45, bottom=0.50, left=0.45, right=0.50)))
+    info = tr.update(0.5, _perc(BBox(top=0.44, bottom=0.52, left=0.44, right=0.52)))
+    assert info["person_ahead"].ttc_s is None
+
+
+def test_camera_tilt_is_not_called_climbing():
+    from jev_nav.frames import EgoMotionEstimator
+    from jev_nav.schemas import UserActivity
+
+    base = np.random.default_rng(3).integers(0, 255, (600, 640, 3), dtype=np.uint8)
+    base = cv2.GaussianBlur(base, (7, 7), 0)
+    ego = EgoMotionEstimator()
+    ego.update(base[0:480])
+    assert ego.update(base[12:492]).activity != UserActivity.CLIMBING  # whole scene shifts vertically

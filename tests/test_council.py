@@ -121,3 +121,47 @@ async def test_fast_lane_skips_navigator(n):
         await orch.step(frame(i))
     nav_calls = sum(1 for c in fake.calls if c["questions"] == ["action"])
     assert nav_calls == 1
+
+
+# ── fixes from the first real-video run ─────────────────────────────────────
+
+
+async def test_clear_path_is_not_slowed_by_a_hedging_navigator():
+    # Real corridor frame: far plant boxed off to the side, navigator split three ways.
+    scene = Scene(present={"path_obstacle": 0.68}, boxes={"path_obstacle": (0.45, 0.53, 0.24, 0.34)}, risk=0.37,
+                  distance="none", free_side="both", ahead_clear=0.92,
+                  nav={"MOVE_FORWARD": 0.37, "SLOW_DOWN": 0.21, "GO_RIGHT": 0.32, "STOP": 0.1})
+    (d,), _ = await run(scene)
+    assert d.action == Action.MOVE_FORWARD and "agree the path is clear" in d.reasons[-1]
+
+
+async def test_close_obstacle_in_corridor_is_not_overridden():
+    scene = Scene(present={"path_obstacle": 0.8}, boxes={"path_obstacle": (0.5, 0.75, 0.4, 0.6)}, risk=0.8,
+                  distance="mid", ahead_clear=0.85, nav={"SLOW_DOWN": 0.6, "MOVE_FORWARD": 0.4})
+    (d,), _ = await run(scene)
+    assert d.action == Action.SLOW_DOWN
+
+
+async def test_smeared_frame_keeps_last_decision_then_stops_as_caution():
+    fake = FakeJev(Scene())
+    orch = Orchestrator(fake, settings(blur_hold_frames=2))
+    assert (await orch.step(frame(0))).action == Action.MOVE_FORWARD
+    smeared = np.full((480, 640, 3), 128, np.uint8)
+    d1 = await orch.step(Frame(1, 0.5, smeared))
+    d2 = await orch.step(Frame(2, 1.0, smeared))
+    d3 = await orch.step(Frame(3, 1.5, smeared))
+    assert d1.action == d2.action == Action.MOVE_FORWARD and "keeping last decision" in d1.reasons[0]
+    assert d3.action == Action.STOP and d3.urgency == Urgency.CAUTION
+    assert (await orch.step(frame(4))).action == Action.STOP  # relaxing still needs confirmation
+
+
+async def test_stairs_climb_starts_after_walker_stops_then_moves():
+    from jev_nav.schemas import EgoMotion, UserActivity
+
+    scene = Scene(present={"stairs_down": 0.9}, boxes={"stairs_down": (0.6, 0.8, 0.2, 0.8)}, risk=2.5,
+                  distance="mid", kind="stairs_down", nav={"STOP_AT_STAIRS": 0.9, "STOP": 0.1})
+    orch = Orchestrator(FakeJev(scene), settings())
+    acts = iter([UserActivity.WALKING, UserActivity.WALKING, UserActivity.STANDING, UserActivity.WALKING])
+    orch.ego.update = lambda bgr: EgoMotion(magnitude=1, horizontal=0, vertical=0, activity=next(acts))
+    seq = [(await orch.step(frame(i))).action for i in range(4)]
+    assert seq == [Action.STOP_AT_STAIRS, Action.STOP_AT_STAIRS, Action.STOP_AT_STAIRS, Action.CLIMB_DOWN]

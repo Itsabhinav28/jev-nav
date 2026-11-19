@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     sample_fps: float = 2.0
     full_council_every_n: int = Field(3, ge=1)
     max_decision_latency_s: float = 2.5
+    min_sharpness: float = 12.0  # below this a frame is smeared beyond use (Laplacian variance at 320 px)
+    blur_hold_frames: int = Field(2, ge=0)  # keep the last decision through this many smeared frames
 
     # Safety
     traffic_side: Literal["left", "right"] = "left"

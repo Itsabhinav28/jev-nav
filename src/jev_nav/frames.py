@@ -109,7 +109,7 @@ def prepare_for_jev(bgr: np.ndarray) -> bytes:
     return buf.tobytes()
 
 
-def assess_quality(bgr: np.ndarray, min_sharpness: float = 40.0) -> FrameQuality:
+def assess_quality(bgr: np.ndarray, min_sharpness: float = 12.0) -> FrameQuality:
     """Blur (variance of Laplacian) and exposure gate, run before spending Jev calls."""
     gray = cv2.cvtColor(_small(bgr), cv2.COLOR_BGR2GRAY)
     sharp = float(cv2.Laplacian(gray, cv2.CV_64F).var())
@@ -144,9 +144,9 @@ class EgoMotionEstimator:
             act = UserActivity.STANDING
         elif abs(hx) > self.turn_ratio * max(abs(vy), 0.1) and abs(hx) > 0.5 * mag:
             act = UserActivity.TURNING
-        elif abs(vy) > 0.6 * mag and abs(vy) > 1.5:
-            act = UserActivity.CLIMBING  # strong, consistent vertical scene motion
         else:
+            # Vertical flow is NOT used to detect climbing: tilting the camera produces the same signal.
+            # Stairs progress is decided by the stairs state machine from what Jev sees.
             act = UserActivity.WALKING
         return EgoMotion(magnitude=mag, horizontal=hx, vertical=vy, activity=act)
 

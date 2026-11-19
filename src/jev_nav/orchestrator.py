@@ -43,7 +43,7 @@ class Orchestrator:
 
     async def step(self, frame: Frame) -> NavDecision:
         started = time.monotonic()
-        quality = assess_quality(frame.bgr)
+        quality = assess_quality(frame.bgr, self.s.min_sharpness)
         ego = self.ego.update(frame.bgr)
         report = CouncilReport(frame_index=frame.index, timestamp_s=frame.timestamp_s)
 

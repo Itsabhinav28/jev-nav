@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from .schemas import BBox, PerceptionFindings, TrackInfo
 
+MAX_AREA_JUMP = 2.5  # per frame; bigger jumps mean Jev boxed something else
 TRACKED = ("person_ahead", "path_obstacle", "crossing_object", "stairs_down", "stairs_up")
 
 
@@ -33,9 +34,13 @@ class Tracker:
             det = getattr(perception, key)
             tr = self.tracks[key]
             if det.box is not None:
+                prev_area = tr.history[-1][1] if tr.history else None
+                if prev_area and not (1 / MAX_AREA_JUMP <= det.box.area / prev_area <= MAX_AREA_JUMP):
+                    tr.history.clear()  # box jumped to a different object: don't read that as approach
                 tr.history.append((t, det.box.area))
                 tr.last_box, tr.last_seen_t = det.box, t
-                out[key] = TrackInfo(label=key, ttc_s=_ttc(tr.history))
+                close = det.box.distance_band().value in ("near", "mid")  # far boxes are too small/noisy for TTC
+                out[key] = TrackInfo(label=key, ttc_s=_ttc(tr.history) if close else None)
             else:
                 tr.history.clear()
                 remembered = None

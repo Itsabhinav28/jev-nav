@@ -30,6 +30,9 @@ from .schemas import (
 
 TURNS = {Action.GO_LEFT, Action.GO_RIGHT}
 STAIR_EXIT_FRAMES = 3
+CLEAR_MAX_RISK = 1.0  # hazard agent's 0–3 score below this…
+CLEAR_MIN_AHEAD = 0.8  # …and clearance agent this sure the corridor is walkable = clear path
+CORRIDOR = (0.3, 0.7)  # central strip of the frame the walker will pass through
 
 
 def mistake_cost(chosen: Action, truth: Action) -> float:
@@ -62,6 +65,8 @@ class Arbiter:
         self._stairs_absent = 0
         self._pending: Action | None = None
         self._pending_count = 0
+        self._blur_run = 0  # consecutive smeared frames
+        self._edge_stood = False  # walker stood still at the stairs edge
 
     # ── public ───────────────────────────────────────────────────────────
     def decide(
@@ -81,8 +86,16 @@ class Arbiter:
         if stale:
             action, critical = Action.STOP, True
             reasons.append("decision arrived too late to be safe")
+        elif not quality.ok and quality.reason == "blurry" and self.last is not None and self._blur_run < self.s.blur_hold_frames:
+            # One or two smeared frames (usually a quick turn) don't change the world: keep the last decision.
+            self._blur_run += 1
+            action = self.last.action
+            critical = self.last.urgency == Urgency.CRITICAL
+            hazard_kind, hazard_side, distance = self.last.hazard_kind, self.last.hazard_side, self.last.distance
+            reasons.append(f"frame smeared ({self._blur_run}/{self.s.blur_hold_frames}), keeping last decision")
         elif not quality.ok:
-            action, critical = Action.STOP, True
+            # Can't see for longer: stop, but as caution. Critical is kept for real physical hazards.
+            action = Action.STOP
             reasons.append(f"cannot see clearly ({quality.reason})")
             hazard_kind = "cannot_see"
         elif report.perception is None or report.hazard is None or report.clearance is None:
@@ -93,6 +106,8 @@ class Arbiter:
                 report, ego, tracks, ttc, reasons
             )
 
+        if quality.ok:
+            self._blur_run = 0
         action = self._hysteresis(action, reasons)
         urgency = _urgency(action, critical)
         conf = report.navigator.confidence if report.navigator else (report.hazard.risk_confidence if report.hazard else 0.0)
@@ -107,7 +122,7 @@ class Arbiter:
             distance=distance,
             ttc_s=ttc,
             stairs_mode=self.stairs_mode,
-            activity=ego.activity,
+            activity=UserActivity.CLIMBING if self.stairs_mode in (StairsMode.CLIMBING_UP, StairsMode.CLIMBING_DOWN) else ego.activity,
             confidence=conf,
             changed=self.last is None or self.last.action != action,
         )
@@ -136,15 +151,26 @@ class Arbiter:
 
         # 3. Proposal
         allowed = set(Action) - {Action.CLIMB_UP, Action.CLIMB_DOWN, Action.STOP_AT_STAIRS}
+        clear_path = (
+            hz.risk < CLEAR_MAX_RISK
+            and cl.ahead_clear >= CLEAR_MIN_AHEAD
+            and not _in_corridor_close(p, thr)
+            and (ttc is None or ttc >= self.s.ttc_slow_s)
+        )
         if nav is not None and nav.probabilities:
             action, cost = least_risky(nav.probabilities, allowed)
             reasons.append(f"navigator: {nav.action.value} (p={nav.confidence:.2f}) → least-risk {action.value}")
-            if nav.confidence < self.s.navigator_min_confidence:
+            if nav.confidence < self.s.navigator_min_confidence and not clear_path:
                 floor = Action.STOP if hz.risk >= 1.5 else Action.SLOW_DOWN
                 action = _at_least(action, floor)
                 reasons.append(f"navigator unsure → at least {floor.value}")
         else:
             action = self._rule_proposal(r, reasons)
+        if clear_path and action in (Action.SLOW_DOWN, *TURNS):
+            # Two independent Jev agents say the corridor is clear and nothing is close in it:
+            # the navigator's hedging is about far-away things. Vetoes below still apply.
+            action = Action.MOVE_FORWARD
+            reasons.append(f"hazard ({hz.risk:.1f}) and clearance ({cl.ahead_clear:.2f}) agree the path is clear")
 
         # 4. Safety vetoes (can only make it safer)
         crossing = p.crossing_object.presence >= thr or (mv is not None and mv.movement == "crossing")
@@ -239,6 +265,7 @@ class Arbiter:
         if self.stairs_mode == StairsMode.NORMAL:
             if close_down or close_up:
                 self.stairs_mode = StairsMode.AT_EDGE
+                self._edge_stood = False
                 self._stairs_dir = "down" if close_down else "up"
                 self._stairs_absent = 0
                 reasons.append(f"stairs going {self._stairs_dir} ahead")
@@ -252,10 +279,15 @@ class Arbiter:
             return None
 
         if self.stairs_mode == StairsMode.AT_EDGE:
-            nav_says_climb = nav is not None and nav.action in (Action.CLIMB_UP, Action.CLIMB_DOWN)
-            # The walker decides to start: we see deliberate climbing motion, or they move on after stopping.
-            if ego.activity == UserActivity.CLIMBING or (nav_says_climb and ego.activity == UserActivity.WALKING):
+            if ego.activity == UserActivity.STANDING:
+                self._edge_stood = True
+            nav_says_climb = nav is not None and nav.action in (Action.CLIMB_UP, Action.CLIMB_DOWN) and nav.confidence >= 0.6
+            # The walker decides to start: they stopped at the edge as told, then moved on
+            # (or the navigator clearly sees them already on the steps while moving).
+            moving = ego.activity in (UserActivity.WALKING, UserActivity.TURNING)
+            if moving and (self._edge_stood or nav_says_climb):
                 self.stairs_mode = StairsMode.CLIMBING_DOWN if self._stairs_dir == "down" else StairsMode.CLIMBING_UP
+                self._edge_stood = False
             else:
                 reasons.append(f"waiting at the {self._stairs_dir} stairs")
                 return Action.STOP_AT_STAIRS, False
@@ -301,6 +333,18 @@ def _at_least(action: Action, floor: Action) -> Action:
 def _min_ttc(tracks: dict[str, TrackInfo]) -> float | None:
     vals = [t.ttc_s for t in tracks.values() if t.ttc_s is not None]
     return min(vals) if vals else None
+
+
+def _in_corridor_close(p, thr: float) -> bool:
+    """Anything present, at NEAR/MID distance, overlapping the central walking strip."""
+    for key in ("person_ahead", "path_obstacle", "ground_hazard", "overhead_hazard", "crossing_object", "stairs_down", "stairs_up"):
+        det = getattr(p, key)
+        if det.presence >= thr and det.box is not None:
+            b = det.box
+            overlaps = b.right > CORRIDOR[0] and b.left < CORRIDOR[1]
+            if overlaps and b.distance_band() in (Distance.NEAR, Distance.MID):
+                return True
+    return False
 
 
 def _main_box(p, thr: float):
