@@ -11,8 +11,8 @@ from pydantic import BaseModel, ValidationError
 
 from ..config import Settings
 from ..schemas import HALT_ACTIONS, NavDecision
-from ..prompts import COMPANION_SYSTEM_PROMPT
-from .phrases import line_for
+from ..prompts import companion_system_prompt
+from .phrases import line_for, lines
 
 # Words that would tell a halted walker to move. If Nemotron says these during a halt, we drop its reply.
 GO_WORDS = re.compile(r"\b(chalo|chal do|aage badho|badhte raho|go ahead|move forward|keep going|walk on)\b", re.I)
@@ -30,7 +30,7 @@ class Companion:
         self._client = AsyncOpenAI(
             api_key=settings.openrouter_api_key.get_secret_value(), base_url=settings.openrouter_base_url
         )
-        self._system = COMPANION_SYSTEM_PROMPT.format(language=settings.companion_language)
+        self._system = companion_system_prompt(settings.companion_language)
         self.history: list[dict] = []  # last few spoken exchanges, text only
 
     async def respond(
@@ -69,7 +69,8 @@ class Companion:
 
     def _validate(self, raw: str, decision: NavDecision | None) -> str:
         """Jev is the source of truth: a reply that names a different action, or says 'go' during a halt, is dropped."""
-        fallback = line_for(decision) if decision else "Ruko, main abhi sure nahi hoon."
+        lang = self.s.companion_language
+        fallback = line_for(decision, lang) if decision else lines(lang)["UNSURE"]
         match = re.search(r"\{.*\}", raw, re.S)
         if not match:
             return fallback

@@ -16,7 +16,7 @@ def dec(action, urgency, changed=True, activity=UserActivity.WALKING, stairs=Sta
 def test_critical_always_speaks_fixed_line():
     p = SpeechPolicy(4, 12)
     ev = p.consider(dec(Action.STOP, Urgency.CRITICAL), now=0)
-    assert ev and ev.channel == Channel.FIXED and ev.text == "Ruko!"
+    assert ev and ev.channel == Channel.FIXED and ev.text == "Stop!"
     assert p.consider(dec(Action.STOP, Urgency.CRITICAL, changed=False), now=1) is None  # no nagging
     assert p.consider(dec(Action.STOP, Urgency.CRITICAL, changed=False), now=5) is not None  # still there → remind
 
@@ -38,7 +38,7 @@ def test_all_clear_after_halt_and_proactive_only_when_standing():
     p = SpeechPolicy(4, 12)
     p.consider(dec(Action.WAIT, Urgency.CAUTION), now=0)
     ev = p.consider(dec(Action.MOVE_FORWARD, Urgency.INFO), now=5)
-    assert ev and ev.text == "Rasta saaf hai, chalo."
+    assert ev and ev.text == "Path is clear, go ahead."
     assert p.consider(dec(Action.MOVE_FORWARD, Urgency.INFO, changed=False, kind="person"), now=30) is None  # walking
     ev = p.consider(dec(Action.MOVE_FORWARD, Urgency.INFO, changed=False, kind="person", activity=UserActivity.STANDING), now=31)
     assert ev and ev.channel == Channel.COMPANION
@@ -47,11 +47,11 @@ def test_all_clear_after_halt_and_proactive_only_when_standing():
 def test_companion_cannot_contradict_jev():
     c = Companion(Settings(_env_file=None, openrouter_api_key="x"))
     stop = dec(Action.STOP, Urgency.CRITICAL)
-    assert c._validate('{"say": "Haan chalo, sab theek hai", "ack_action": "STOP"}', stop) == "Ruko!"
-    assert c._validate('{"say": "Aage badh jao", "ack_action": "MOVE_FORWARD"}', stop) == "Ruko!"
-    assert c._validate("not json", stop) == "Ruko!"
-    ok = c._validate('{"say": "Ruko, saamne pillar hai.", "ack_action": "STOP"}', stop)
-    assert ok == "Ruko, saamne pillar hai."
+    assert c._validate('{"say": "Haan chalo, sab theek hai", "ack_action": "STOP"}', stop) == "Stop!"
+    assert c._validate('{"say": "Aage badh jao", "ack_action": "MOVE_FORWARD"}', stop) == "Stop!"
+    assert c._validate("not json", stop) == "Stop!"
+    ok = c._validate('{"say": "Stop, pillar right in front.", "ack_action": "STOP"}', stop)
+    assert ok == "Stop, pillar right in front."
 
 
 def test_voice_detector_finds_an_utterance():
@@ -67,3 +67,10 @@ def test_voice_detector_finds_an_utterance():
 def test_decode_raw_pcm():
     samples, rate = decode_audio(np.arange(10, dtype=np.int16).tobytes(), 44100)
     assert rate == 44100 and samples.tolist() == list(range(10))
+
+
+def test_hinglish_still_available():
+    p = SpeechPolicy(4, 12, language="hinglish")
+    assert p.consider(dec(Action.STOP, Urgency.CRITICAL), now=0).text == "Ruko!"
+    from jev_nav.prompts import companion_system_prompt
+    assert "Hinglish" in companion_system_prompt("hinglish") and "plain, simple English" in companion_system_prompt("english")

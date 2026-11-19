@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from ..schemas import Action, NavDecision, StairsMode, Urgency, UserActivity
-from .phrases import ACTION_LINES, line_for, line_key
+from .phrases import line_for, line_key, lines
 
 
 class Channel(StrEnum):
@@ -31,8 +31,9 @@ class SpeechEvent:
 
 
 class SpeechPolicy:
-    def __init__(self, caution_cooldown_s: float, info_cooldown_s: float) -> None:
+    def __init__(self, caution_cooldown_s: float, info_cooldown_s: float, language: str = "english") -> None:
         self.caution_cd, self.info_cd = caution_cooldown_s, info_cooldown_s
+        self.language = language
         self._last_spoken_t: dict[Urgency, float] = {}
         self._last_key: str | None = None
         self._last_info_scene: tuple | None = None
@@ -44,7 +45,7 @@ class SpeechPolicy:
         if d.urgency == Urgency.CRITICAL:
             # Re-announce a critical only if it's a new one, or it has persisted past the cooldown.
             if key != self._last_key or self._elapsed(Urgency.CRITICAL, now) >= self.caution_cd:
-                return self._emit(SpeechEvent(Channel.FIXED, d.urgency, line_for(d), key, d), now)
+                return self._emit(SpeechEvent(Channel.FIXED, d.urgency, line_for(d, self.language), key, d), now)
             return None
 
         if busy or user_talking:
@@ -52,7 +53,7 @@ class SpeechPolicy:
 
         if d.urgency == Urgency.CAUTION:
             if d.changed and key != self._last_key and self._elapsed(Urgency.CAUTION, now) >= self.caution_cd:
-                return self._emit(SpeechEvent(Channel.FIXED, d.urgency, line_for(d), key, d), now)
+                return self._emit(SpeechEvent(Channel.FIXED, d.urgency, line_for(d, self.language), key, d), now)
             return None
 
         # INFO: the all-clear after a halt is worth one short line; otherwise only when standing still.
@@ -60,7 +61,7 @@ class SpeechPolicy:
             Action.STOP.value, Action.WAIT.value, "STOP_AT_STAIRS_down", "STOP_AT_STAIRS_up", Action.CLIMB_DOWN.value, Action.CLIMB_UP.value,
         ):
             text_key = "LANDING" if self._last_key in (Action.CLIMB_DOWN.value, Action.CLIMB_UP.value) else key
-            return self._emit(SpeechEvent(Channel.FIXED, d.urgency, ACTION_LINES[text_key], text_key, d), now)
+            return self._emit(SpeechEvent(Channel.FIXED, d.urgency, lines(self.language)[text_key], text_key, d), now)
 
         scene = (d.hazard_kind, d.distance.value)
         if (

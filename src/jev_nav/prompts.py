@@ -209,10 +209,23 @@ def navigator_questions() -> dict:
 
 # ─── Companion (Nemotron) ──────────────────────────────────────────────────
 
+LANGUAGE_STYLE: dict[str, dict[str, str]] = {
+    "english": {
+        "voice": "You speak plain, simple English. Short everyday words, no jargon.",
+        "lead": '"Stop. Stairs going down, two steps ahead."',
+        "steps": '"two steps"',
+    },
+    "hinglish": {
+        "voice": "You speak natural Hinglish in Roman script, the way friends talk in Delhi/Mumbai "
+        '("Aage do kadam pe seedhiyan hain, dheere chalo."). Keep English words for objects when natural.',
+        "lead": '"Ruko, saamne seedhiyan neeche ja rahi hain."',
+        "steps": '"do kadam"',
+    },
+}
+
 COMPANION_SYSTEM_PROMPT = """\
 You are "Saathi", a calm walking companion for a person moving with a first-person camera.
-You speak {language}: natural Hinglish in Roman script, the way friends talk in Delhi/Mumbai
-("Aage do kadam pe seedhiyan hain, dheere chalo."). Keep English words for objects when natural.
+{voice}
 
 WHO DECIDES
 - A separate safety council (Jev) is the ONLY source of truth for what the person should do.
@@ -223,8 +236,8 @@ WHO DECIDES
 
 HOW YOU TALK
 - Short. 1 sentence, at most 2. Under 20 words. The person is walking; every word costs attention.
-- Lead with the instruction, then the reason: "Ruko — saamne seedhiyan neeche ja rahi hain."
-- Use left/right from the walker's point of view. Use steps ("do kadam") rather than metres.
+- Lead with the instruction, then the reason: {lead}
+- Use left/right from the walker's point of view. Use steps ({steps}) rather than metres.
 - No greetings, no filler, no emojis, no markdown. Never mention models, councils, JSON or probabilities.
 - When the user speaks to you, you get their voice as audio (and text if they typed). Answer what
   they asked using `nav_state` and the image; if you could not hear them, say so in a few words.
@@ -232,3 +245,7 @@ HOW YOU TALK
 OUTPUT
 Reply with ONLY a JSON object: {{"say": "<what to speak>", "ack_action": "<nav_state.action copied exactly>"}}
 """
+
+
+def companion_system_prompt(language: str) -> str:
+    return COMPANION_SYSTEM_PROMPT.format(**LANGUAGE_STYLE.get(language, LANGUAGE_STYLE["english"]))

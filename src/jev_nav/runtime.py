@@ -11,7 +11,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from .companion.phrases import ACTION_LINES
+from .companion.phrases import lines
 from .companion.speech_policy import Channel, SpeechPolicy
 from .config import Settings
 from .frames import iter_frames
@@ -38,7 +38,7 @@ async def run(
     jev = JevClient(settings)
     orch = Orchestrator(jev, settings, live=live)
     rec = RunRecorder(out_dir, settings.sample_fps, settings.presence_threshold, save_frames)
-    policy = SpeechPolicy(settings.caution_cooldown_s, settings.info_cooldown_s)
+    policy = SpeechPolicy(settings.caution_cooldown_s, settings.info_cooldown_s, settings.companion_language)
     t0 = time.monotonic()
 
     speaker = companion = listener = None
@@ -50,8 +50,9 @@ async def run(
         speaker = Speaker(settings, settings.output_dir / "tts_cache", play_audio=play_audio)
         companion = Companion(settings)
         with console.status("Pre-voicing alert lines…"):
-            n = await speaker.warm(list(ACTION_LINES.values()))
-        console.print(f"[dim]{n}/{len(ACTION_LINES)} alert lines ready[/]")
+            alert_lines = list(lines(settings.companion_language).values())
+            n = await speaker.warm(alert_lines)
+        console.print(f"[dim]{n}/{len(alert_lines)} alert lines ready[/]")
 
     def spawn(coro) -> None:
         task = asyncio.create_task(coro)

@@ -3,8 +3,8 @@
 Spoken guidance for someone walking with a first-person (FPV) camera: **stop, wait, slow down, step left or right, or handle stairs.**
 
 - **Jev decides.** A council of 5 agents asks TypeSafe's Jev model typed questions about each frame. Plain Python code (the arbiter) turns their answers into one action. This is the only source of truth.
-- **Nemotron talks.** NVIDIA Nemotron 3 Nano Omni (via OpenRouter) hears you (always-on mic), sees the frame, reads Jev's decision and answers in Hinglish. It can explain the decision but never change it.
-- **HeyGen speaks.** Alerts are pre-recorded at startup, so "Ruko!" plays instantly. Replies are voiced on demand.
+- **Nemotron talks.** NVIDIA Nemotron 3 Nano Omni (via OpenRouter) hears you (always-on mic), sees the frame, reads Jev's decision and answers in English (or Hinglish: `COMPANION_LANGUAGE`). It can explain the decision but never change it.
+- **HeyGen speaks.** Alerts are pre-recorded at startup, so "Stop!" plays instantly. Replies are voiced on demand.
 
 ```
 camera ─► local checks (blur, light, body motion — OpenCV, no AI)

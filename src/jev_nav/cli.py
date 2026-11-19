@@ -78,7 +78,9 @@ async def _check() -> None:
         from .companion.tts import Speaker
 
         sp = Speaker(s, s.output_dir / "tts_cache", play_audio=False)
-        audio = await sp.synthesize("Ruko, aage seedhiyan neeche hain.")
+        from .companion.phrases import lines
+
+        audio = await sp.synthesize(lines(s.companion_language)["STOP_AT_STAIRS_down"])
         console.print(f"[green]✓ TTS {s.tts_model}[/]: {len(audio):,} bytes")
         await sp.aclose()
     except Exception as e:  # noqa: BLE001
@@ -95,7 +97,7 @@ async def _check() -> None:
         if audio:
             samples, rate = decode_audio(audio, s.tts_sample_rate)
             wav = to_wav(samples, rate)
-        reply = await comp.respond(None, user_audio_wav=wav, user_text=None if wav else "Kya aage rasta saaf hai?")
+        reply = await comp.respond(None, user_audio_wav=wav, user_text=None if wav else "Is the path ahead clear?")
         console.print(f"[green]✓ Companion {s.companion_model}[/] ({'audio' if wav else 'text'} in): {reply}")
         await comp.aclose()
     except Exception as e:  # noqa: BLE001
