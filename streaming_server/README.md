@@ -39,6 +39,8 @@ pip install -e ".[stream]"
 python streaming_server/server.py            # add --voice to speak alerts on the laptop, --no-jev to stream only
 ```
 - Laptop dashboard without a certificate warning: `http://localhost:8080/` (bound to this computer only).
+- Use this computer's camera instead of the phone (no network, works behind a locked-down firewall):
+  `python streaming_server/server.py --camera 0`  (macOS asks for camera access on first run)
 - No phone handy? Stream a video file as if it were the phone:
   `python streaming_server/fake_phone.py videos/clip.mp4 --still-every 12`
 - macOS: FFmpeg comes from `imageio-ffmpeg` automatically (or `brew install ffmpeg`).

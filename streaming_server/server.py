@@ -155,21 +155,54 @@ def run_hook(img: np.ndarray, ts: float, sensors: dict | None = None):
         S.hook_busy = False
 
 
+def ingest(img: np.ndarray, now: float) -> None:
+    """One frame from any source (phone over WebRTC, or a camera on this computer)."""
+    S.latest, S.latest_ts = img, now
+    S.recv_frames += 1
+    S.fps_window.append(now)
+    if S.session:
+        S.session.push(img)
+        S.session.log_sensors(sensor_snapshot(), now)
+    if not S.hook_busy and now - S.last_hook >= 1 / hooks.ANALYSIS_FPS:
+        S.hook_busy, S.last_hook = True, now
+        S.pool.submit(run_hook, img, now, sensor_snapshot())
+
+
+def open_local_camera(index: int) -> cv2.VideoCapture | None:
+    """Must run on the main thread: on macOS that's the only place the camera permission prompt can appear."""
+    cap = cv2.VideoCapture(index)
+    if not cap.isOpened():
+        print(f"[camera] cannot open camera {index} (on macOS: allow camera access for the app running this server, "
+              "in System Settings → Privacy & Security → Camera)")
+        return None
+    print(f"[camera] using local camera {index}: {int(cap.get(3))}x{int(cap.get(4))}")
+    return cap
+
+
+def local_camera(cap: cv2.VideoCapture, loop: asyncio.AbstractEventLoop) -> None:
+    """Read a camera attached to this computer (e.g. the MacBook camera). No network involved."""
+    fails = 0
+    try:
+        while True:
+            ok, img = cap.read()
+            if not ok:
+                fails += 1
+                if fails > 50:
+                    print("[camera] stopped delivering frames")
+                    return
+                time.sleep(0.05)
+                continue
+            fails = 0
+            loop.call_soon_threadsafe(ingest, img, time.time())
+    finally:
+        cap.release()
+
+
 async def consume(track):
     try:
         while True:
             frame = await track.recv()
-            img = frame.to_ndarray(format="bgr24")
-            now = time.time()
-            S.latest, S.latest_ts = img, now
-            S.recv_frames += 1
-            S.fps_window.append(now)
-            if S.session:
-                S.session.push(img)
-                S.session.log_sensors(sensor_snapshot(), now)
-            if not S.hook_busy and now - S.last_hook >= 1 / hooks.ANALYSIS_FPS:
-                S.hook_busy, S.last_hook = True, now
-                S.pool.submit(run_hook, img, now, sensor_snapshot())
+            ingest(frame.to_ndarray(format="bgr24"), time.time())
     except Exception:
         pass  # track ended
     finally:
@@ -317,6 +350,8 @@ def main():
     ap.add_argument("--host", default=None, help="IP to advertise (default: auto-detect LAN IP)")
     ap.add_argument("--local-port", type=int, default=8080,
                     help="plain-HTTP dashboard on 127.0.0.1 only (laptop, no certificate warning); 0 = off")
+    ap.add_argument("--camera", type=int, default=None,
+                    help="use a camera on this computer instead of the phone (0 = built-in camera)")
     ap.add_argument("--no-jev", action="store_true", help="stream only, don't run the Jev navigation council")
     ap.add_argument("--voice", action="store_true", help="speak Jev's alerts on the laptop (HeyGen)")
     a = ap.parse_args()
@@ -344,10 +379,16 @@ def main():
     if a.local_port:
         print(f"                      http://localhost:{a.local_port}/   (this computer only, no certificate warning)")
     print(f"  Phone URL:          {app['phone_url']}   (accept the certificate warning)\n")
-    asyncio.run(serve(app, a.port, ctx, a.local_port))
+    cap = open_local_camera(a.camera) if a.camera is not None else None
+    asyncio.run(serve(app, a.port, ctx, a.local_port, cap))
 
 
-async def serve(app: web.Application, port: int, ctx: ssl.SSLContext, local_port: int) -> None:
+async def serve(app: web.Application, port: int, ctx: ssl.SSLContext, local_port: int,
+                camera: cv2.VideoCapture | None = None) -> None:
+    if camera is not None:
+        import threading
+
+        threading.Thread(target=local_camera, args=(camera, asyncio.get_running_loop()), daemon=True).start()
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", port, ssl_context=ctx).start()  # phone: HTTPS, needed for the camera
