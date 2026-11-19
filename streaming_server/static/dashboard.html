@@ -30,12 +30,32 @@ button.stop{background:#dc2626}button:disabled{opacity:.4;cursor:not-allowed}
 .note{margin-top:6px;font-size:12px;color:var(--mut)}
 code{word-break:break-all;color:var(--mut);font-size:12px}
 .res{margin-top:12px;font-size:12px;color:var(--mut);white-space:pre-wrap}
+.act{border-radius:10px;padding:14px 16px;font-size:28px;font-weight:700;letter-spacing:.02em;background:#2a2f37;color:var(--fg)}
+.act small{display:block;font-size:12px;font-weight:500;opacity:.85;letter-spacing:0;margin-top:2px}
+.act.info{background:#14532d;color:#bbf7d0}.act.caution{background:#78350f;color:#fde68a}.act.critical{background:#7f1d1d;color:#fecaca}
+.navgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:12px}
+@media(max-width:860px){.navgrid{grid-template-columns:1fr}}
+.navimg{background:#000;border-radius:8px;min-height:160px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.navimg img{max-width:100%;max-height:360px}
+.why{margin:0;padding-left:18px;color:var(--mut);font-size:13px}.why li{margin:3px 0}
+.err{color:#fca5a5;font-size:12px;margin-top:8px;white-space:pre-wrap}
 </style></head><body><div class="wrap">
 <div style="display:grid;gap:16px;align-content:start;min-width:0">
 <div class="card">
   <h1>Phone camera <span id="pill" class="pill">waiting</span></h1>
   <div class="view" id="view"><span style="color:var(--mut)">Scan the QR code with your phone to start</span></div>
   <div class="stats"><span>Resolution <b id="res">-</b></span><span>FPS <b id="fps">-</b></span><span id="cap"></span></div>
+</div>
+<div class="card" id="navcard"><h2>Jev navigation</h2>
+  <div class="act" id="act">Waiting for frames<small id="actsub">Jev analyses ~2 frames per second once the phone is live</small></div>
+  <div class="navgrid">
+    <div class="navimg" id="navimg"><span style="color:var(--mut)">Last analysed frame appears here</span></div>
+    <div>
+      <ul class="why" id="why"></ul>
+      <div class="stats" style="flex-wrap:wrap"><span>Latency <b id="nlat">-</b></span><span>Analysed <b id="nan">-</b></span><span>Skipped <b id="nsk">-</b></span><span>Cost <b id="ncost">-</b></span></div>
+      <div class="err" id="nerr"></div>
+    </div>
+  </div>
 </div>
 <div class="card"><h2>Phone sensors</h2>
   <div class="sens">
@@ -157,4 +177,25 @@ async function sensorTick(){
   }
 }
 setInterval(sensorTick,300);
+
+// ---------- Jev navigation ----------
+const ACTION_TEXT={MOVE_FORWARD:'Move forward',SLOW_DOWN:'Slow down',STOP:'Stop',WAIT:'Wait',GO_LEFT:'Step left',GO_RIGHT:'Step right',
+  STOP_AT_STAIRS:'Stop at stairs',CLIMB_UP:'Climb up',CLIMB_DOWN:'Climb down'};
+let lastNavFrame=-1;
+async function navTick(){
+  let n=null;
+  try{ n=await (await fetch('/api/nav')).json(); }catch(e){ return; }
+  if(!n.enabled){ $('act').className='act'; $('act').firstChild.textContent='Jev is off'; $('actsub').textContent=n.error||'Started with --no-jev'; return; }
+  $('nerr').textContent=n.error?('Jev error: '+n.error):'';
+  $('nlat').textContent=n.latency_s?n.latency_s+' s':'-'; $('nan').textContent=n.frames_analysed; $('nsk').textContent=n.frames_skipped;
+  $('ncost').textContent='$'+n.cost_usd.toFixed(4);
+  const d=n.decision; if(!d) return;
+  $('act').className='act '+d.urgency;
+  $('act').firstChild.textContent=ACTION_TEXT[d.action]||d.action;
+  $('actsub').textContent=`${d.urgency} · ${d.activity}`+(d.ttc_s!=null?` · contact in ${d.ttc_s.toFixed(1)} s`:'')+(d.stairs_mode!=='normal'?` · stairs: ${d.stairs_mode}`:'');
+  $('why').innerHTML=''; d.reasons.forEach(r=>{const li=document.createElement('li');li.textContent=r;$('why').appendChild(li);});
+  if(d.frame_index!==lastNavFrame){ lastNavFrame=d.frame_index;
+    const img=new Image(); img.onload=()=>{$('navimg').replaceChildren(img);}; img.src='/nav.jpg?f='+d.frame_index; }
+}
+setInterval(navTick,500);navTick();
 </script></body></html>

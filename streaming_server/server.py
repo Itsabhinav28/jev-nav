@@ -26,6 +26,7 @@ from aiohttp import web
 from aiortc import RTCPeerConnection, RTCSessionDescription
 
 import hooks
+import jev_bridge
 from ffmpeg_utils import CaptureSession, find_ffmpeg
 
 BASE = Path(__file__).parent
@@ -290,6 +291,17 @@ async def info(request: web.Request):
     return web.json_response({"phone_url": request.app["phone_url"]})
 
 
+async def nav(_):
+    return web.json_response(jev_bridge.status())
+
+
+async def nav_jpg(_):
+    b = jev_bridge.get()
+    if b is None or b.latest_jpeg is None:
+        return web.Response(status=204)
+    return web.Response(body=b.latest_jpeg, content_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 async def on_shutdown(_):
     if S.session:
         S.session.stop()
@@ -297,10 +309,20 @@ async def on_shutdown(_):
 
 
 def main():
+    import sys
+
+    sys.stdout.reconfigure(line_buffering=True)  # show log lines immediately, even when not in a terminal
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8443)
     ap.add_argument("--host", default=None, help="IP to advertise (default: auto-detect LAN IP)")
+    ap.add_argument("--local-port", type=int, default=8080,
+                    help="plain-HTTP dashboard on 127.0.0.1 only (laptop, no certificate warning); 0 = off")
+    ap.add_argument("--no-jev", action="store_true", help="stream only, don't run the Jev navigation council")
+    ap.add_argument("--voice", action="store_true", help="speak Jev's alerts on the laptop (HeyGen)")
     a = ap.parse_args()
+
+    if not a.no_jev:
+        jev_bridge.start(voice=a.voice)
 
     find_ffmpeg()  # fail fast with a helpful message
     ip = a.host or lan_ip()
@@ -314,13 +336,27 @@ def main():
         web.get("/", lambda r: web.FileResponse(STATIC / "dashboard.html")),
         web.get("/phone", lambda r: web.FileResponse(STATIC / "phone.html")),
         web.post("/offer", offer), web.get("/preview.mjpg", mjpeg),
-        web.get("/api/status", status), web.get("/api/info", info), web.get("/api/sensors", sensors), web.get("/qr.png", qr),
+        web.get("/api/status", status), web.get("/api/info", info), web.get("/api/nav", nav), web.get("/nav.jpg", nav_jpg), web.get("/api/sensors", sensors), web.get("/qr.png", qr),
         web.post("/api/capture/start", capture_start), web.post("/api/capture/stop", capture_stop)])
     app.on_shutdown.append(on_shutdown)
 
     print(f"\n  Dashboard (laptop): https://localhost:{a.port}/")
+    if a.local_port:
+        print(f"                      http://localhost:{a.local_port}/   (this computer only, no certificate warning)")
     print(f"  Phone URL:          {app['phone_url']}   (accept the certificate warning)\n")
-    web.run_app(app, host="0.0.0.0", port=a.port, ssl_context=ctx, print=None)
+    asyncio.run(serve(app, a.port, ctx, a.local_port))
+
+
+async def serve(app: web.Application, port: int, ctx: ssl.SSLContext, local_port: int) -> None:
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, "0.0.0.0", port, ssl_context=ctx).start()  # phone: HTTPS, needed for the camera
+    if local_port:
+        await web.TCPSite(runner, "127.0.0.1", local_port).start()  # laptop only
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await runner.cleanup()
 
 
 if __name__ == "__main__":

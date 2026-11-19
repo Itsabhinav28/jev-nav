@@ -1,7 +1,7 @@
-"""Live frame hook. Edit `on_frame` to run OpenCV / AI models on the stream.
+"""Live frame hook: every phone frame that passes the rate limit goes to the Jev navigation council.
 
 Called in a worker thread at most ANALYSIS_FPS times per second (frames are
-skipped if your code is slower, so the stream never stalls).
+skipped if the analysis is slower, so the stream never stalls).
 
   img     HxWx3 uint8 BGR numpy array (OpenCV-compatible)
   ts      unix time the frame arrived
@@ -10,12 +10,12 @@ skipped if your code is slower, so the stream never stalls).
 """
 import numpy as np
 
-ANALYSIS_FPS = 10
+import jev_bridge
+
+ANALYSIS_FPS = 2  # matches SAMPLE_FPS in .env; Jev takes ~1 s per frame, extra frames would just be dropped
 
 
 def on_frame(img: np.ndarray, ts: float, sensors: dict | None = None) -> None:
-    # Example: print a status line every ~5 s. Replace with detection etc.
-    if int(ts) % 5 == 0 and int(ts * ANALYSIS_FPS) % ANALYSIS_FPS == 0:
-        s = sensors or {}
-        print(f"[hook] {img.shape[1]}x{img.shape[0]} brightness={img.mean():.1f} "
-              f"state={s.get('state')} heading={s.get('heading')}")
+    bridge = jev_bridge.get()
+    if bridge is not None:
+        bridge.submit(img, ts, sensors)

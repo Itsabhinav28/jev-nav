@@ -1,6 +1,9 @@
 aiortc
 aiohttp
-opencv-python
+# headless: shares one environment with jev_nav (the GUI build and headless both install `cv2` and clash)
+opencv-python-headless
 numpy
 cryptography
 qrcode[pil]
+# bundles an FFmpeg binary; find_ffmpeg() falls back to it when ffmpeg isn't on PATH (e.g. macOS without Homebrew)
+imageio-ffmpeg
