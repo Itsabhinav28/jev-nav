@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import queue
 import threading
 import wave
 from pathlib import Path
@@ -31,7 +32,11 @@ class Speaker:
             timeout=20,
         )
         self._speaking = threading.Event()
-        self._lock = asyncio.Lock()
+        # All audio-device calls happen on ONE thread. PortAudio/CoreAudio crash the process (SIGTRAP)
+        # when play and stop are called from different threads at the same time.
+        self._queue: queue.Queue[tuple[np.ndarray, int, threading.Event] | None] = queue.Queue()
+        self._interrupt = threading.Event()
+        self._player: threading.Thread | None = None
 
     @property
     def speaking(self) -> bool:
@@ -56,32 +61,62 @@ class Speaker:
         return sum(1 for r in results if not isinstance(r, BaseException))
 
     async def say(self, text: str, interrupt: bool = False) -> None:
+        """Queue a line and wait until it has played (or was cut off). `interrupt` drops whatever is playing or queued."""
         audio = await self.synthesize(text)
         if not self.play_audio:
             return
+        samples, rate = decode_audio(audio, self.s.tts_sample_rate)
         if interrupt:
             self.stop()
-        async with self._lock:
-            await asyncio.to_thread(self._play_blocking, audio)
+        self._ensure_player()
+        done = threading.Event()
+        self._queue.put((samples, rate, done))
+        await asyncio.to_thread(done.wait, 30)
 
     def stop(self) -> None:
-        if self.play_audio:
-            import sounddevice as sd
+        """Cut off the current line and drop queued ones. Never touches the audio device directly."""
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is not None:
+                item[2].set()
+        self._interrupt.set()
 
-            sd.stop()
+    def _ensure_player(self) -> None:
+        if self._player is None or not self._player.is_alive():
+            self._player = threading.Thread(target=self._play_loop, daemon=True, name="speaker")
+            self._player.start()
 
-    def _play_blocking(self, audio: bytes) -> None:
+    def _play_loop(self) -> None:
         import sounddevice as sd
 
-        samples, rate = decode_audio(audio, self.s.tts_sample_rate)
-        self._speaking.set()
-        try:
-            sd.play(samples, rate)
-            sd.wait()
-        finally:
-            self._speaking.clear()
+        chunk_s = 0.05  # how quickly an interrupt takes effect
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            samples, rate, done = item
+            self._interrupt.clear()
+            self._speaking.set()
+            try:
+                channels = 1 if samples.ndim == 1 else samples.shape[1]
+                step = int(rate * chunk_s)
+                with sd.OutputStream(samplerate=rate, channels=channels, dtype="int16") as out:
+                    for i in range(0, len(samples), step):
+                        if self._interrupt.is_set():
+                            break
+                        out.write(np.ascontiguousarray(samples[i : i + step]))
+            except Exception as e:  # noqa: BLE001 — a broken audio device must not kill guidance
+                print("[speaker] playback failed:", e)
+            finally:
+                self._speaking.clear()
+                done.set()
 
     async def aclose(self) -> None:
+        self.stop()
+        self._queue.put(None)
         await self._http.aclose()
 
 

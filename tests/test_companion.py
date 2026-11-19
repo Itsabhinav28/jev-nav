@@ -74,3 +74,37 @@ def test_hinglish_still_available():
     assert p.consider(dec(Action.STOP, Urgency.CRITICAL), now=0).text == "Ruko!"
     from jev_nav.prompts import companion_system_prompt
     assert "Hinglish" in companion_system_prompt("hinglish") and "plain, simple English" in companion_system_prompt("english")
+
+
+async def test_speaker_plays_on_one_thread_and_interrupts(monkeypatch, tmp_path):
+    """Regression: play + stop from different threads crashed CoreAudio (SIGTRAP) when alerts overlapped."""
+    import asyncio
+    import sys
+    import threading
+    import types
+
+    from jev_nav.companion.tts import Speaker
+
+    threads, writes = set(), []
+
+    class FakeStream:
+        def __init__(self, **kw): threads.add(threading.current_thread().name)
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def write(self, chunk):
+            threads.add(threading.current_thread().name); writes.append(len(chunk)); import time; time.sleep(0.01)
+
+    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(OutputStream=FakeStream))
+    sp = Speaker(Settings(_env_file=None, openrouter_api_key="x"), tmp_path)
+    long_line = np.zeros(44100 * 3, np.int16).tobytes()  # 3 s
+    short_line = np.zeros(4410, np.int16).tobytes()
+    async def fake_synth(text): return long_line if text == "long" else short_line
+    sp.synthesize = fake_synth
+
+    first = asyncio.create_task(sp.say("long"))
+    await asyncio.sleep(0.05)
+    await sp.say("Stop!", interrupt=True)
+    await asyncio.wait_for(first, 2)  # the long line was cut off, not played for 3 s
+    await sp.aclose()
+    assert threads == {"speaker"}
+    assert sum(writes) < 44100 * 3
