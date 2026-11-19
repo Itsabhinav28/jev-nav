@@ -24,6 +24,29 @@ BOX_COLORS = {
 }
 
 
+def open_video_writer(path: Path, fps: float, width: int, height: int) -> cv2.VideoWriter:
+    """H.264 so browsers and the app's viewer can play it; MPEG-4 Part 2 ('mp4v') only as a last resort."""
+    for codec in ("avc1", "mp4v"):
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*codec), fps, (width, height))
+        if writer.isOpened():
+            return writer
+        writer.release()
+    raise RuntimeError(f"No usable video codec for {path}")
+
+
+def encode_frames(frames_dir: Path, out: Path, fps: float) -> int:
+    """Rebuild an annotated video from a run's saved frames."""
+    files = sorted(frames_dir.glob("*.jpg"))
+    if not files:
+        return 0
+    first = cv2.imread(str(files[0]))
+    writer = open_video_writer(out, fps, first.shape[1], first.shape[0])
+    for f in files:
+        writer.write(cv2.imread(str(f)))
+    writer.release()
+    return len(files)
+
+
 def annotate(bgr: np.ndarray, d: NavDecision, r: CouncilReport | None, threshold: float) -> np.ndarray:
     img = bgr.copy()
     h, w = img.shape[:2]
@@ -71,8 +94,7 @@ class RunRecorder:
         if self.save_frames:
             cv2.imwrite(str(self.dir / "frames" / f"{d.frame_index:06d}.jpg"), img)
         if self._video is None:
-            h, w = img.shape[:2]
-            self._video = cv2.VideoWriter(str(self.dir / "annotated.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (w, h))
+            self._video = open_video_writer(self.dir / "annotated.mp4", self.fps, img.shape[1], img.shape[0])
         self._video.write(img)
 
     def note_speech(self, t: float, channel: str, text: str) -> None:
