@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stream Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#0b0d10;--card:#14171c;--line:#2a2f37;--fg:#e8eaed;--mut:#9aa3ad;--acc:#2563eb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:16px;display:grid;grid-template-columns:1fr 320px;gap:16px}
+@media(max-width:860px){.wrap{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+h1{font-size:18px;margin:0 0 12px}h2{font-size:13px;color:var(--mut);margin:0 0 10px;text-transform:uppercase;letter-spacing:.06em}
+.view{aspect-ratio:16/9;background:#000;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.view img{max-width:100%;max-height:100%}
+.pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;background:#2a2f37}
+.pill.on{background:#14532d;color:#86efac}
+.stats{display:flex;gap:16px;margin-top:10px;color:var(--mut)}.stats b{color:var(--fg)}
+label{display:block;margin:10px 0 4px;color:var(--mut);font-size:12px}
+select,input[type=number]{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:#1c2128;color:var(--fg)}
+.chk{display:flex;gap:8px;align-items:center;margin-top:10px;color:var(--fg)}
+button{width:100%;margin-top:14px;padding:12px;border:0;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;font-size:14px;cursor:pointer}
+button.stop{background:#dc2626}button:disabled{opacity:.4;cursor:not-allowed}
+.qr{text-align:center}.qr img{width:200px;border-radius:8px;background:#fff;padding:6px}
+.sens{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.kv{flex:1;min-width:220px;display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.kv span{display:block;color:var(--mut);font-size:12px}.kv b{font-size:15px}
+#map{height:280px;border-radius:8px;margin-top:14px;background:#1c2128}
+.note{margin-top:6px;font-size:12px;color:var(--mut)}
+code{word-break:break-all;color:var(--mut);font-size:12px}
+.res{margin-top:12px;font-size:12px;color:var(--mut);white-space:pre-wrap}
+</style></head><body><div class="wrap">
+<div style="display:grid;gap:16px;align-content:start;min-width:0">
+<div class="card">
+  <h1>Phone camera <span id="pill" class="pill">waiting</span></h1>
+  <div class="view" id="view"><span style="color:var(--mut)">Scan the QR code with your phone to start</span></div>
+  <div class="stats"><span>Resolution <b id="res">-</b></span><span>FPS <b id="fps">-</b></span><span id="cap"></span></div>
+</div>
+<div class="card"><h2>Phone sensors</h2>
+  <div class="sens">
+    <canvas id="compass" width="170" height="170"></canvas>
+    <div class="kv">
+      <div><span>Activity</span><b id="mv">-</b></div>
+      <div><span>Looking at</span><b id="hd">-</b></div>
+      <div><span>Camera tilt</span><b id="pt">-</b></div>
+      <div><span>Speed</span><b id="sp">-</b></div>
+      <div><span>Shake (accel &sigma;)</span><b id="sd">-</b></div>
+      <div><span>GPS</span><b id="gp">-</b></div>
+    </div>
+  </div>
+  <div id="map"></div>
+  <div class="note" id="mapnote"></div>
+</div>
+</div>
+<div style="display:grid;gap:16px;align-content:start">
+  <div class="card qr"><h2>Connect phone (same Wi-Fi)</h2><img src="/qr.png"><p><code id="url"></code></p></div>
+  <div class="card"><h2>Capture with FFmpeg</h2>
+    <label>Frame extraction rate</label>
+    <select id="fpsSel"><option>1</option><option>2</option><option>5</option><option selected>10</option><option>15</option><option>24</option><option>30</option><option value="custom">Custom...</option></select>
+    <input id="fpsCustom" type="number" min="0.1" max="60" step="0.1" placeholder="fps, e.g. 0.5" style="display:none;margin-top:6px">
+    <label>Image format</label>
+    <select id="fmt"><option value="jpg">JPG (small)</option><option value="png">PNG (lossless)</option></select>
+    <label class="chk"><input type="checkbox" id="frames" checked> Save frames</label>
+    <label class="chk" style="margin-top:4px"><input type="checkbox" id="rec" checked> Record full video (MP4)</label>
+    <button id="go" disabled>Start capture</button>
+    <div class="res" id="out"></div>
+  </div>
+</div></div>
+<script>
+const $=id=>document.getElementById(id);
+fetch('/api/info').then(r=>r.json()).then(j=>$('url').textContent=j.phone_url);
+$('fpsSel').onchange=()=>$('fpsCustom').style.display=$('fpsSel').value==='custom'?'block':'none';
+let live=false,capturing=false;
+async function tick(){
+  try{
+    const s=await (await fetch('/api/status')).json();
+    $('pill').textContent=s.connected?'live':'waiting'; $('pill').className='pill'+(s.connected?' on':'');
+    $('res').textContent=s.resolution||'-'; $('fps').textContent=s.connected?s.fps:'-';
+    if(s.connected&&!live){$('view').innerHTML='<img src="/preview.mjpg">';}
+    if(!s.connected&&live){$('view').innerHTML='<span style="color:var(--mut)">Phone disconnected</span>';}
+    live=s.connected; capturing=s.capturing;
+    $('go').disabled=!live&&!capturing; $('go').textContent=capturing?'Stop capture':'Start capture';
+    $('go').className=capturing?'stop':'';
+    $('cap').innerHTML=s.capture?`<b>REC</b> ${s.capture.seconds}s - ${s.capture.frames_in} frames in, ${s.capture.dropped} dropped`:'';
+    if(!capturing&&s.last_result){const r=s.last_result;
+      $('out').textContent=`Saved ${r.frames_saved} frames (${r.seconds}s)\n${r.dir}`+(r.ffmpeg_error?`\nFFmpeg: ${r.ffmpeg_error}`:'');}
+  }catch(e){}
+}
+$('go').onclick=async()=>{
+  $('go').disabled=true;
+  if(capturing){await fetch('/api/capture/stop',{method:'POST'});}
+  else{
+    const fps=$('fpsSel').value==='custom'?+$('fpsCustom').value:+$('fpsSel').value;
+    const r=await fetch('/api/capture/start',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({fps,format:$('fmt').value,frames:$('frames').checked,record:$('rec').checked})});
+    if(!r.ok)$('out').textContent=(await r.json()).error;
+  }
+  tick();
+};
+setInterval(tick,1000);tick();
+
+// ---------- sensors: compass + status + map ----------
+const DIRS=['N','NE','E','SE','S','SW','W','NW'];
+const cardinal=h=>DIRS[Math.round(h/45)%8];
+function drawCompass(h){
+  const c=$('compass'),x=c.getContext('2d'),R=80,cx=85,cy=85;
+  const css=getComputedStyle(document.documentElement);
+  x.clearRect(0,0,170,170);
+  x.strokeStyle='#2a2f37';x.lineWidth=2;x.beginPath();x.arc(cx,cy,R,0,7);x.stroke();
+  x.fillStyle='#9aa3ad';x.font='12px system-ui';x.textAlign='center';x.textBaseline='middle';
+  [['N',0],['E',90],['S',180],['W',270]].forEach(([t,a])=>{
+    const r=(a-(h||0))*Math.PI/180; // dial rotates so the camera direction is always up
+    x.fillStyle=t==='N'?'#f87171':'#9aa3ad';
+    x.fillText(t,cx+Math.sin(r)*(R-12),cy-Math.cos(r)*(R-12));});
+  if(h==null)return;
+  x.fillStyle='#2563eb';x.beginPath();x.moveTo(cx,cy-52);x.lineTo(cx-13,cy+16);x.lineTo(cx,cy+6);x.lineTo(cx+13,cy+16);x.closePath();x.fill();
+}
+drawCompass(null);
+
+let map=null,me=null,fov=null,trail=null,firstFix=true;
+function initMap(){
+  if(map||!window.L){return;}
+  map=L.map('map',{zoomControl:true}).setView([20,78],4);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);
+  trail=L.polyline([],{color:'#2563eb',weight:3}).addTo(map);
+  fov=L.polygon([],{color:'#2563eb',weight:1,fillOpacity:.25}).addTo(map);
+  me=L.circleMarker([0,0],{radius:7,color:'#fff',weight:2,fillColor:'#2563eb',fillOpacity:1});
+}
+function dest(lat,lon,brg,d){const R=6371000,b=brg*Math.PI/180,p=lat*Math.PI/180,l=lon*Math.PI/180,a=d/R;
+  const p2=Math.asin(Math.sin(p)*Math.cos(a)+Math.cos(p)*Math.sin(a)*Math.cos(b));
+  const l2=l+Math.atan2(Math.sin(b)*Math.sin(a)*Math.cos(p),Math.cos(a)-Math.sin(p)*Math.sin(p2));
+  return [p2*180/Math.PI,l2*180/Math.PI];}
+initMap();
+if(!window.L)$('mapnote').textContent='Map needs internet on the laptop (Leaflet/OpenStreetMap). Other sensor data still works.';
+
+async function sensorTick(){
+  let s=null;
+  try{ s=(await (await fetch('/api/sensors')).json()).sensors; }catch(e){}
+  if(!s){ ['mv','hd','pt','sp','sd','gp'].forEach(i=>$(i).textContent='-'); drawCompass(null); return; }
+  $('mv').textContent=s.state;
+  $('hd').textContent=s.heading==null?'-':`${Math.round(s.heading)}° ${cardinal(s.heading)}`+(s.abs?'':' (relative)');
+  $('pt').textContent=s.pitch==null?'-':`${s.pitch>15?'up':s.pitch<-15?'down':'level'} (${Math.round(s.pitch)}°)`;
+  $('sp').textContent=s.speed_ms==null?'-':`${(s.speed_ms*3.6).toFixed(1)} km/h`;
+  $('sd').textContent=s.accel_std==null?'-':s.accel_std.toFixed(2);
+  $('gp').textContent=s.lat==null?'no fix yet':`±${Math.round(s.gps_acc)} m`;
+  drawCompass(s.heading);
+  if(s.lat!=null&&map&&me){
+    const p=[s.lat,s.lon];
+    if(!map.hasLayer(me))me.addTo(map);
+    me.setLatLng(p);
+    const last=trail.getLatLngs().slice(-1)[0];
+    if(!last||map.distance(last,p)>2)trail.addLatLng(p);
+    if(s.heading!=null)fov.setLatLngs([p,dest(s.lat,s.lon,s.heading-30,30),dest(s.lat,s.lon,s.heading,34),dest(s.lat,s.lon,s.heading+30,30)]);
+    if(firstFix){map.setView(p,18);firstFix=false;}
+    else if(!map.getBounds().pad(-0.2).contains(p))map.panTo(p);
+  }
+}
+setInterval(sensorTick,300);
+</script></body></html>

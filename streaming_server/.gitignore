@@ -1,0 +1,6 @@
+certs/
+captures/
+__pycache__/
+*.pem
+*.log
+*.err

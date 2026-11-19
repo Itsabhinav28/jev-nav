@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Phone Camera</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#0b0d10;color:#e8eaed;font:15px system-ui,sans-serif;display:flex;flex-direction:column;min-height:100dvh}
+video{width:100%;flex:1;min-height:0;object-fit:contain;background:#000}
+.bar{padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:grid;gap:10px;background:#14171c}
+.row{display:flex;gap:8px}
+select,button{flex:1;padding:12px;border-radius:10px;border:1px solid #2a2f37;background:#1c2128;color:inherit;font-size:15px}
+button.go{background:#2563eb;border-color:#2563eb;font-weight:600}
+button.stop{background:#dc2626;border-color:#dc2626}
+#st{font-size:13px;opacity:.8;text-align:center;min-height:1.2em}
+</style></head><body>
+<video id="v" autoplay playsinline muted></video>
+<div class="bar">
+  <div class="row">
+    <select id="res"><option value="1080">1080p</option><option value="720">720p</option><option value="2160">4K</option></select>
+    <select id="fps"><option>30</option><option>60</option><option>24</option><option>15</option></select>
+    <select id="cam"><option value="environment">Back cam</option><option value="user">Front cam</option></select>
+  </div>
+  <select id="br"><option value="8000">Bitrate 8 Mbps (high)</option><option value="4000">4 Mbps (balanced)</option><option value="15000">15 Mbps (max, LAN)</option><option value="1500">1.5 Mbps (weak Wi-Fi)</option></select>
+  <label style="font-size:13px;display:flex;gap:8px;align-items:center"><input type="checkbox" id="sens" checked> Send sensors (compass, motion, GPS)</label>
+  <button id="btn" class="go">Start streaming</button>
+  <div id="sst" style="font-size:12px;opacity:.7;text-align:center"></div>
+  <div id="st">Ready</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let pc=null,stream=null,wake=null,timer=null;
+const W={720:1280,1080:1920,2160:3840}, H={720:720,1080:1080,2160:2160};
+
+async function start(){
+  if(!navigator.mediaDevices){ $('st').textContent='Camera needs HTTPS - open the https:// link and accept the warning.'; return; }
+  if($('sens').checked) await startSensors();   // first: iOS needs this inside the tap
+  $('st').textContent='Opening camera...';
+  const r=+$('res').value, fps=+$('fps').value;
+  stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{
+    facingMode:$('cam').value, width:{ideal:W[r]}, height:{ideal:H[r]}, frameRate:{ideal:fps}}});
+  $('v').srcObject=stream;
+  const vt=stream.getVideoTracks()[0]; vt.contentHint='motion';
+  try{ wake=await navigator.wakeLock.request('screen'); }catch(e){}
+
+  pc=new RTCPeerConnection({iceServers:[]});
+  dc=pc.createDataChannel('sensors',{ordered:false,maxRetransmits:0});
+  clearInterval(sendTimer); sendTimer=setInterval(sensorTick,50);
+  const tr=pc.addTransceiver(vt,{direction:'sendonly',streams:[stream]});
+  // prefer H.264 (hardware encoded on phones -> cooler, higher quality), then VP8
+  try{
+    const caps=RTCRtpSender.getCapabilities('video').codecs;
+    const rank=c=>/h264/i.test(c.mimeType)?0:/vp8/i.test(c.mimeType)?1:2;
+    tr.setCodecPreferences([...caps].sort((a,b)=>rank(a)-rank(b)));
+  }catch(e){}
+  const p=tr.sender.getParameters(); if(!p.encodings||!p.encodings.length)p.encodings=[{}];
+  p.encodings[0].maxBitrate=+$('br').value*1000; p.encodings[0].maxFramerate=fps;
+  p.degradationPreference='maintain-resolution';
+  try{await tr.sender.setParameters(p);}catch(e){}
+
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise(res=>{ if(pc.iceGatheringState==='complete')return res();
+    pc.addEventListener('icegatheringstatechange',()=>pc.iceGatheringState==='complete'&&res());
+    setTimeout(res,2000); });
+  const resp=await fetch('/offer',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sdp:pc.localDescription.sdp,type:pc.localDescription.type})});
+  await pc.setRemoteDescription(await resp.json());
+  pc.onconnectionstatechange=()=>{ if(['failed','closed'].includes(pc.connectionState)) stop('Connection failed ('+pc.iceConnectionState+') - firewall/Wi-Fi isolation?'); };
+  pc.oniceconnectionstatechange=()=>{ if(!last) $('st').textContent='Connecting... ('+pc.iceConnectionState+')'; };
+  $('st').textContent='Connecting... ('+pc.iceConnectionState+')';
+  $('btn').textContent='Stop'; $('btn').className='stop';
+  timer=setInterval(stats,1000);
+}
+let last=null;
+async function stats(){
+  if(!pc)return;
+  for(const s of (await pc.getStats()).values()){
+    if(s.type==='outbound-rtp'&&s.kind==='video'){
+      let kbps=last?Math.round((s.bytesSent-last.bytesSent)*8/((s.timestamp-last.timestamp)/1000)/1000):0; last=s;
+      $('st').textContent=`Live ${s.frameWidth}x${s.frameHeight} @ ${Math.round(s.framesPerSecond||0)} fps - ${kbps} kbps`+
+        (s.qualityLimitationReason&&s.qualityLimitationReason!=='none'?` (limited: ${s.qualityLimitationReason})`:'');
+    }
+  }
+}
+function stop(msg){
+  clearInterval(timer); clearInterval(sendTimer); last=null; dc=null; $('sst').textContent='';
+  if(geoId!=null){navigator.geolocation.clearWatch(geoId);geoId=null;} SN.g=null;
+  pc&&pc.close(); pc=null; stream&&stream.getTracks().forEach(t=>t.stop()); stream=null;
+  wake&&wake.release().catch(()=>{}); $('v').srcObject=null;
+  $('btn').textContent='Start streaming'; $('btn').className='go'; $('st').textContent=msg||'Stopped';
+}
+// ---- sensors: compass/orientation, motion, GPS -> sent over a WebRTC data channel ----
+const SN={o:null,m:null,g:null,abs:false,on:false};
+let dc=null,sendTimer=null,geoId=null,sstTick=0;
+function camDir(a,b,g){ // where the BACK camera points: heading (0=N, clockwise) and pitch (+up)
+  const r=Math.PI/180,ca=Math.cos(a*r),sa=Math.sin(a*r),cb=Math.cos(b*r),sb=Math.sin(b*r),cg=Math.cos(g*r),sg=Math.sin(g*r);
+  const x=-(sg*ca+cg*sb*sa), y=-(sg*sa-cg*sb*ca), z=-(cg*cb);
+  return {h:(Math.atan2(x,y)/r+360)%360, p:Math.asin(Math.max(-1,Math.min(1,z)))/r};
+}
+async function startSensors(){
+  try{ // iOS 13+ asks permission (must be called straight from the tap)
+    if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function')
+      await DeviceMotionEvent.requestPermission();
+  }catch(e){}
+  if(!SN.on){
+    SN.on=true;
+    const onOri=e=>{ if(e.type==='deviceorientationabsolute')SN.abs=true; else if(SN.abs)return;
+      SN.o={alpha:e.alpha,beta:e.beta,gamma:e.gamma,cw:e.webkitCompassHeading,abs:e.absolute||e.type==='deviceorientationabsolute'}; };
+    window.addEventListener('deviceorientationabsolute',onOri,true);
+    window.addEventListener('deviceorientation',onOri,true);
+    window.addEventListener('devicemotion',e=>{
+      const a=e.accelerationIncludingGravity,r=e.rotationRate; if(!a||a.x==null)return;
+      SN.m={a:[a.x,a.y,a.z],r:r&&r.alpha!=null?[r.alpha,r.beta,r.gamma]:null}; },true);
+  }
+  watchGeo(true);
+}
+function watchGeo(high){
+  if(!navigator.geolocation){SN.gerr='GPS not supported';return;}
+  if(geoId!=null)navigator.geolocation.clearWatch(geoId);
+  geoId=navigator.geolocation.watchPosition(p=>{const c=p.coords; SN.gerr=null; SN.gmode=high?'GPS':'network';
+      SN.g={lat:c.latitude,lon:c.longitude,acc:c.accuracy,alt:c.altitude,speed:c.speed,hdg:c.heading,ts:Date.now()};},
+    e=>{
+      if(e.code===1){SN.gerr='Location blocked: allow it in browser site settings & turn on phone Location';return;}
+      SN.gerr=e.code===3?'GPS timeout (go near a window/outside)':'GPS unavailable';
+      if(high){watchGeo(false);}   // fall back to Wi-Fi/network location
+    },{enableHighAccuracy:high,maximumAge:2000,timeout:high?15000:30000});
+}
+function sensorTick(){
+  const o=SN.o,out={t:Date.now()};
+  if(o&&o.alpha!=null){
+    let a=o.alpha; const ios=o.cw!=null&&!isNaN(o.cw); if(ios)a=(360-o.cw)%360;
+    const c=camDir(a,o.beta,o.gamma); out.o={h:c.h,p:c.p,abs:ios||!!o.abs};
+  }
+  if(SN.m)out.m=SN.m; if(SN.g)out.g=SN.g;
+  if(dc&&dc.readyState==='open')dc.send(JSON.stringify(out));
+  if(++sstTick%10===0)$('sst').textContent='Sensors: '+(out.o?`heading ${Math.round(out.o.h)}°`:'no compass')+
+    ' · '+(out.m?'motion ok':'no motion')+' · '+(out.g?`${SN.gmode||'GPS'} ±${Math.round(out.g.acc)}m`:(SN.gerr||'waiting for GPS...'));
+}
+$('btn').onclick=()=>pc?stop():start().catch(e=>stop('Error: '+e.message));
+</script></body></html>
