@@ -14,6 +14,9 @@ import numpy as np
 
 from ..config import Settings
 
+# HeyGen voices on OpenRouter: nadine, tabitha, bram, gareth, noelle, meredith, sabrina, lucian, weston, vincent.
+DEFAULT_VOICE = "nadine"
+
 
 class Speaker:
     def __init__(self, settings: Settings, cache_dir: Path, play_audio: bool = True) -> None:
@@ -36,13 +39,12 @@ class Speaker:
 
     async def synthesize(self, text: str) -> bytes:
         """Returns raw audio bytes (PCM16 mono by default, or WAV). Cached by text + voice + model."""
-        key = hashlib.sha1(f"{self.s.tts_model}|{self.s.tts_voice}|{self.s.tts_format}|{text}".encode()).hexdigest()
+        voice = self.s.tts_voice or DEFAULT_VOICE  # HeyGen rejects requests without a voice
+        key = hashlib.sha1(f"{self.s.tts_model}|{voice}|{self.s.tts_format}|{text}".encode()).hexdigest()
         path = self.cache_dir / f"{key}.{self.s.tts_format}"
         if path.exists():
             return path.read_bytes()
-        body: dict = {"model": self.s.tts_model, "input": text, "response_format": self.s.tts_format}
-        if self.s.tts_voice:
-            body["voice"] = self.s.tts_voice
+        body: dict = {"model": self.s.tts_model, "input": text, "voice": voice, "response_format": self.s.tts_format}
         r = await self._http.post("/audio/speech", json=body)
         r.raise_for_status()
         path.write_bytes(r.content)

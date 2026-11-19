@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     info_cooldown_s: float = 12.0
 
     output_dir: Path = Path("runs")
+
+    @field_validator("companion_language", "traffic_side", mode="before")
+    @classmethod
+    def _lowercase(cls, v: object) -> object:
+        return v.strip().lower() if isinstance(v, str) else v
 
     def require(self, *names: str) -> None:
         missing = [n for n in names if not getattr(self, n).get_secret_value()]
