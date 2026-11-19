@@ -39,6 +39,12 @@ code{word-break:break-all;color:var(--mut);font-size:12px}
 .navimg img{max-width:100%;max-height:360px}
 .why{margin:0;padding-left:18px;color:var(--mut);font-size:13px}.why li{margin:3px 0}
 .err{color:#fca5a5;font-size:12px;margin-top:8px;white-space:pre-wrap}
+.talk{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.said{list-style:none;margin:0 0 10px;padding:0;max-height:180px;overflow:auto;font-size:13px}
+.said li{padding:4px 0;color:var(--mut)}.said b{color:var(--fg);font-weight:600;margin-right:6px}
+.said .alert b{color:#fde68a}.said .nemotron b{color:#93c5fd}.said .you b{color:#86efac}
+.askrow{display:flex;gap:8px}.askrow input{flex:1;padding:9px;border-radius:8px;border:1px solid var(--line);background:#1c2128;color:var(--fg)}
+.askrow button{width:auto;margin:0;padding:9px 14px}
 </style></head><body><div class="wrap">
 <div style="display:grid;gap:16px;align-content:start;min-width:0">
 <div class="card">
@@ -55,6 +61,12 @@ code{word-break:break-all;color:var(--mut);font-size:12px}
       <div class="stats" style="flex-wrap:wrap"><span>Latency <b id="nlat">-</b></span><span>Analysed <b id="nan">-</b></span><span>Skipped <b id="nsk">-</b></span><span>Cost <b id="ncost">-</b></span></div>
       <div class="err" id="nerr"></div>
     </div>
+  </div>
+  <div class="talk">
+    <h2>Voice <span class="pill" id="vpill">off</span></h2>
+    <ul class="said" id="said"><li>Nothing said yet. Alerts speak only when the action changes; Nemotron speaks when you ask, or when you stand still and something new is ahead.</li></ul>
+    <form class="askrow" id="askform"><input id="askq" placeholder="Ask Nemotron, e.g. what's in front of me?" autocomplete="off"><button>Ask</button></form>
+    <div class="err" id="verr"></div>
   </div>
 </div>
 <div class="card"><h2>Phone sensors</h2>
@@ -189,6 +201,10 @@ async function navTick(){
   $('nerr').textContent=n.error?('Jev error: '+n.error):'';
   $('nlat').textContent=n.latency_s?n.latency_s+' s':'-'; $('nan').textContent=n.frames_analysed; $('nsk').textContent=n.frames_skipped;
   $('ncost').textContent='$'+n.cost_usd.toFixed(4);
+  $('vpill').textContent=n.voice?(n.mic?'speaking + listening':'speaking'):'off'; $('vpill').className='pill'+(n.voice?' on':'');
+  $('verr').textContent=n.voice_error||'';
+  if(n.spoken&&n.spoken.length){ $('said').replaceChildren(...n.spoken.slice().reverse().map(x=>{const li=document.createElement('li');li.className=x.who;
+    const b=document.createElement('b');b.textContent={alert:'Alert',nemotron:'Nemotron',you:'You'}[x.who]||x.who;li.append(b,`${x.text}  · ${x.t}s`);return li;})); }
   const d=n.decision; if(!d) return;
   $('act').className='act '+d.urgency;
   $('act').firstChild.textContent=ACTION_TEXT[d.action]||d.action;
@@ -198,4 +214,7 @@ async function navTick(){
     const img=new Image(); img.onload=()=>{$('navimg').replaceChildren(img);}; img.src='/nav.jpg?f='+d.frame_index; }
 }
 setInterval(navTick,500);navTick();
+$('askform').onsubmit=async e=>{e.preventDefault(); const text=$('askq').value.trim(); if(!text)return; $('askq').value='';
+  const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+  if(!r.ok)$('verr').textContent=(await r.json()).error; };
 </script></body></html>

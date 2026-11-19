@@ -14,6 +14,7 @@ import asyncio
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -58,7 +59,7 @@ class SensorEgo:
 
 
 class JevBridge:
-    def __init__(self, voice: bool = False) -> None:
+    def __init__(self, voice: bool = False, mic: bool = False) -> None:
         self.settings = Settings(_env_file=ROOT / ".env")
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self.loop.run_forever, daemon=True, name="jev-loop").start()
@@ -76,8 +77,11 @@ class JevBridge:
         self.frames_skipped = 0
         self.last_error: str | None = None
         self.voice = voice
-        self.policy = self.speaker = None
-        if voice:
+        self.policy = self.speaker = self.companion = self.listener = None
+        self.spoken: deque[dict] = deque(maxlen=8)  # newest last: {t, who, text}
+        self.voice_error: str | None = None
+        if voice or mic:
+            from jev_nav.companion.nemotron import Companion
             from jev_nav.companion.phrases import lines
             from jev_nav.companion.speech_policy import SpeechPolicy
             from jev_nav.companion.tts import Speaker
@@ -85,7 +89,58 @@ class JevBridge:
             s = self.settings
             self.policy = SpeechPolicy(s.caution_cooldown_s, s.info_cooldown_s, s.companion_language)
             self.speaker = Speaker(s, ROOT / s.output_dir / "tts_cache")
+            self.companion = Companion(s)
             asyncio.run_coroutine_threadsafe(self.speaker.warm(list(lines(s.companion_language).values())), self.loop)
+        if mic:
+            from jev_nav.companion.listener import Listener
+
+            self.listener = Listener(lambda: self.speaker.speaking, self._heard)
+            self.listener.start(self.loop)  # callbacks are delivered on the bridge loop
+            print("[voice] microphone on: speak any time")
+
+    # ── talking ──────────────────────────────────────────────────────────
+    async def _say(self, text: str, who: str, critical: bool = False) -> None:
+        self.spoken.append({"t": round(time.time() - self.t0, 1), "who": who, "text": text})
+        print(f"[say:{who}] {text}")
+        try:
+            await self.speaker.say(text, interrupt=critical)
+        except Exception as e:  # noqa: BLE001 — speech must never break navigation
+            self.voice_error = f"speech: {type(e).__name__}: {e}"
+            print("[voice error]", self.voice_error)
+
+    async def _companion(self, **kw) -> str | None:
+        try:
+            reply = await self.companion.respond(self.latest, self.orch.last_jpeg, **kw)
+            self.voice_error = None
+            return reply
+        except Exception as e:  # noqa: BLE001
+            msg = str(e)
+            if "402" in msg or "balance" in msg:
+                self.voice_error = "Nemotron needs at least $0.50 OpenRouter credit to accept voice input. Typed questions still work."
+            else:
+                self.voice_error = f"Nemotron: {type(e).__name__}: {msg[:200]}"
+            print("[voice error]", self.voice_error)
+            return None
+
+    def _heard(self, wav: bytes) -> None:
+        """Mic utterance (runs on the bridge loop)."""
+        self.spoken.append({"t": round(time.time() - self.t0, 1), "who": "you", "text": "(spoke)"})
+        asyncio.ensure_future(self._answer(audio=wav))
+
+    async def _answer(self, audio: bytes | None = None, text: str | None = None) -> None:
+        reply = await self._companion(user_audio_wav=audio, user_text=text)
+        if reply:
+            await self._say(reply, "nemotron")
+
+    def ask(self, text: str) -> None:
+        """Typed question from the dashboard (any thread)."""
+        self.spoken.append({"t": round(time.time() - self.t0, 1), "who": "you", "text": text})
+        asyncio.run_coroutine_threadsafe(self._answer(text=text), self.loop)
+
+    async def _proactive(self, decision: NavDecision) -> None:
+        reply = await self._companion(proactive=True)
+        if reply:
+            await self._say(reply, "nemotron")
 
     @property
     def interval_s(self) -> float:
@@ -120,9 +175,12 @@ class JevBridge:
             print(f"[jev] #{decision.frame_index:<4} {decision.action.value:<15} {decision.urgency.value:<8} "
                   f"{decision.activity.value:<9} {self.latest_latency:.2f}s  {'; '.join(decision.reasons)[-90:]}")
             if self.policy and self.speaker:
-                ev = self.policy.consider(decision, time.time() - self.t0)
-                if ev and ev.text:
-                    asyncio.ensure_future(self.speaker.say(ev.text, interrupt=ev.urgency.value == "critical"))
+                talking = bool(self.listener and self.listener.user_talking)
+                ev = self.policy.consider(decision, time.time() - self.t0, user_talking=talking)
+                if ev and ev.channel.value == "fixed":
+                    asyncio.ensure_future(self._say(ev.text, "alert", critical=ev.urgency.value == "critical"))
+                elif ev:
+                    asyncio.ensure_future(self._proactive(decision))
         except Exception as e:  # noqa: BLE001 — keep the stream alive, surface the error on the dashboard
             self.last_error = f"{type(e).__name__}: {e}"
             print("[jev error]", self.last_error)
@@ -133,7 +191,10 @@ class JevBridge:
         d = self.latest
         return {
             "enabled": True,
-            "voice": self.voice,
+            "voice": self.speaker is not None,
+            "mic": self.listener is not None,
+            "spoken": list(self.spoken),
+            "voice_error": self.voice_error,
             "decision": d.model_dump(mode="json") if d else None,
             "latency_s": round(self.latest_latency, 2),
             "frames_analysed": self.frames_analysed,
@@ -148,10 +209,10 @@ _bridge: JevBridge | None = None
 _disabled_reason: str | None = None
 
 
-def start(voice: bool = False) -> None:
+def start(voice: bool = False, mic: bool = False) -> None:
     global _bridge, _disabled_reason
     try:
-        _bridge = JevBridge(voice=voice)
+        _bridge = JevBridge(voice=voice, mic=mic)
     except Exception as e:  # noqa: BLE001 — e.g. missing keys: stream still works without Jev
         _disabled_reason = f"{type(e).__name__}: {e}"
         print("[jev] disabled:", _disabled_reason)

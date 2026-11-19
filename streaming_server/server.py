@@ -328,6 +328,17 @@ async def nav(_):
     return web.json_response(jev_bridge.status())
 
 
+async def ask(request: web.Request):
+    b = jev_bridge.get()
+    if b is None or b.companion is None:
+        return web.json_response({"error": "start the server with --voice to talk to Nemotron"}, status=409)
+    text = ((await request.json()).get("text") or "").strip()[:500]
+    if not text:
+        return web.json_response({"error": "empty"}, status=400)
+    b.ask(text)
+    return web.json_response({"ok": True})
+
+
 async def nav_jpg(_):
     b = jev_bridge.get()
     if b is None or b.latest_jpeg is None:
@@ -353,11 +364,12 @@ def main():
     ap.add_argument("--camera", type=int, default=None,
                     help="use a camera on this computer instead of the phone (0 = built-in camera)")
     ap.add_argument("--no-jev", action="store_true", help="stream only, don't run the Jev navigation council")
-    ap.add_argument("--voice", action="store_true", help="speak Jev's alerts on the laptop (HeyGen)")
+    ap.add_argument("--voice", action="store_true", help="speak alerts and Nemotron's lines on the laptop (HeyGen)")
+    ap.add_argument("--mic", action="store_true", help="always-on laptop microphone for talking to Nemotron (implies --voice)")
     a = ap.parse_args()
 
     if not a.no_jev:
-        jev_bridge.start(voice=a.voice)
+        jev_bridge.start(voice=a.voice or a.mic, mic=a.mic)
 
     find_ffmpeg()  # fail fast with a helpful message
     ip = a.host or lan_ip()
@@ -371,7 +383,7 @@ def main():
         web.get("/", lambda r: web.FileResponse(STATIC / "dashboard.html")),
         web.get("/phone", lambda r: web.FileResponse(STATIC / "phone.html")),
         web.post("/offer", offer), web.get("/preview.mjpg", mjpeg),
-        web.get("/api/status", status), web.get("/api/info", info), web.get("/api/nav", nav), web.get("/nav.jpg", nav_jpg), web.get("/api/sensors", sensors), web.get("/qr.png", qr),
+        web.get("/api/status", status), web.get("/api/info", info), web.get("/api/nav", nav), web.post("/api/ask", ask), web.get("/nav.jpg", nav_jpg), web.get("/api/sensors", sensors), web.get("/qr.png", qr),
         web.post("/api/capture/start", capture_start), web.post("/api/capture/stop", capture_stop)])
     app.on_shutdown.append(on_shutdown)
 

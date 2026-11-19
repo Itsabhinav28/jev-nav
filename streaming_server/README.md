@@ -36,8 +36,11 @@ analysed frame with boxes, the reasons, latency and running cost. API: `GET /api
 ```
 # one environment for both (from the repo root; keys in ../.env)
 pip install -e ".[stream]"
-python streaming_server/server.py            # add --voice to speak alerts on the laptop, --no-jev to stream only
+python streaming_server/server.py            # --voice: speak alerts + Nemotron lines, --mic: also listen, --no-jev: stream only
 ```
+- Voice: fixed alerts play instantly when the action changes; Nemotron answers what you type in the dashboard's
+  Ask box (or say, with `--mic`), and speaks on its own only when you're standing still and something new is ahead.
+  Voice *input* needs at least $0.50 of OpenRouter credit; typed questions work without it.
 - Laptop dashboard without a certificate warning: `http://localhost:8080/` (bound to this computer only).
 - Use this computer's camera instead of the phone (no network, works behind a locked-down firewall):
   `python streaming_server/server.py --camera 0`  (macOS asks for camera access on first run)
