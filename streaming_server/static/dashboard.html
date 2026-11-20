@@ -259,7 +259,20 @@ dialog ol{padding-left:20px;margin:14px 0}
     </article>
 
     <article class="panel" aria-labelledby="mapH">
-      <div class="panel-head"><h2 id="mapH">Map</h2><span class="muted">3D viewer not set up</span></div>
+      <div class="panel-head"><h2 id="mapH">Map</h2><span class="muted" id="mapNote">3D viewer not set up</span></div>
+      <div id="slamBox" hidden>
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <button type="button" id="vTop" style="padding:6px 12px;cursor:pointer">Top view</button>
+          <button type="button" id="v3d" style="padding:6px 12px;cursor:pointer">3D view</button>
+          <button type="button" id="vFit" style="padding:6px 12px;cursor:pointer">Fit</button>
+        </div>
+        <canvas id="slamCv" width="640" height="420" style="width:100%;height:auto;background:#fff;border:1px solid var(--rule);border-radius:8px;cursor:grab;touch-action:none" aria-label="Live map from ORB-SLAM3" role="img"></canvas>
+        <div class="legend" style="margin:8px 0 4px"><span><i style="background:#111"></i>Map points</span><span><i style="background:#d22"></i>Camera path</span><span><i style="background:#06c"></i>You are here</span></div>
+        <img id="slamImg" alt="Frame with tracked features" style="width:100%;height:auto;border-radius:8px;margin:6px 0;display:none;background:#000">
+        <p class="muted" style="font-size:.85rem;margin:0" id="slamStats">–</p>
+        <p class="muted" style="font-size:.8rem;margin:2px 0 0">Drag to rotate, scroll to zoom. Scale is arbitrary (single camera) and the lens is guessed, so read it as a sketch.</p>
+      </div>
+      <div id="mapPlaceholder">
       <svg class="hexart" viewBox="0 0 300 120" role="img" aria-label="Illustration of an empty hexagonal floor map">
         <defs>
           <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--panel)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--ink-2)" stroke-width="1.6"/></pattern>
@@ -270,6 +283,7 @@ dialog ol{padding-left:20px;margin:14px 0}
       <div class="legend"><span><i style="background:var(--go)"></i>Walkable</span><span><i style="background:var(--ink)"></i>Blocked</span><span><i style="background-image:repeating-linear-gradient(45deg,var(--ink-2) 0 2px,transparent 2px 5px);border:1px solid var(--rule)"></i>Unverified</span></div>
       <p style="font-weight:500;margin-bottom:6px">No map for this building yet</p>
       <ol class="steps"><li>Record a walk through the building</li><li>Reconstruct it on a GPU after the walk</li><li>Review the floor map and 3D view here</li></ol>
+      </div>
     </article>
   </section>
 
@@ -557,5 +571,46 @@ async function sensorTick(){
 }
 setInterval(sensorTick,300);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>drawCompass(null));
+
+/* ── ORB-SLAM3 live 3D map (drag to orbit, wheel to zoom) ── */
+const slam={pts:[],path:[],pose:null,yaw:0,pitch:Math.PI/2,zoom:1,ver:-1,drag:null};
+const slamCv=$('slamCv'), sctx=slamCv.getContext('2d');
+function slamDraw(){
+  const W=slamCv.width,H=slamCv.height,cs=getComputedStyle(document.documentElement);
+  sctx.fillStyle='#fff'; sctx.fillRect(0,0,W,H);
+  const P=slam.pts, L=slam.path;
+  const all=P.length?P:L; if(!all.length) return;
+  const c=[0,1,2].map(k=>{const v=all.map(p=>p[k]).sort((a,b)=>a-b);return v[v.length>>1];});
+  const sp=Math.max(1e-6,...[0,1,2].map(k=>{const v=all.map(p=>Math.abs(p[k]-c[k])).sort((a,b)=>a-b);return v[Math.floor(v.length*0.95)]||0;}));
+  const sc=Math.min(W,H)*0.42/sp*slam.zoom, cy=Math.cos(slam.yaw),sy=Math.sin(slam.yaw),cp=Math.cos(slam.pitch),spn=Math.sin(slam.pitch);
+  const proj=p=>{let x=p[0]-c[0],y=-(p[1]-c[1]),z=p[2]-c[2];
+    let x1=x*cy+z*sy, z1=-x*sy+z*cy; let y2=y*cp-z1*spn, z2=y*spn+z1*cp;
+    const f=1/(1+z2*sc/(W*1.6)); return [W/2+x1*sc*f,H/2-y2*sc*f,z2];};
+  sctx.fillStyle='#111';
+  for(const p of P){const q=proj(p); sctx.fillRect(q[0],q[1],2,2);}
+  if(L.length>1){sctx.strokeStyle='#d22';sctx.lineWidth=2.5;sctx.beginPath();
+    L.forEach((p,i)=>{const q=proj(p);i?sctx.lineTo(q[0],q[1]):sctx.moveTo(q[0],q[1]);});sctx.stroke();}
+  if(slam.pose){const q=proj(slam.pose),r=proj([slam.pose[0]+slam.pose[5]*sp*0.25,slam.pose[1]+slam.pose[8]*sp*0.25,slam.pose[2]+slam.pose[11]*sp*0.25]);
+    sctx.fillStyle='#06c';sctx.beginPath();sctx.arc(q[0],q[1],6,0,7);sctx.fill();
+    sctx.strokeStyle='#06c';sctx.lineWidth=3;sctx.beginPath();sctx.moveTo(q[0],q[1]);sctx.lineTo(r[0],r[1]);sctx.stroke();}
+}
+slamCv.addEventListener('pointerdown',e=>{slam.drag=[e.clientX,e.clientY];slamCv.setPointerCapture(e.pointerId);slamCv.style.cursor='grabbing';});
+slamCv.addEventListener('pointerup',()=>{slam.drag=null;slamCv.style.cursor='grab';});
+slamCv.addEventListener('pointermove',e=>{if(!slam.drag)return;slam.yaw+=(e.clientX-slam.drag[0])*0.008;
+  slam.pitch=Math.max(-1.5,Math.min(1.5,slam.pitch+(e.clientY-slam.drag[1])*0.008));slam.drag=[e.clientX,e.clientY];slamDraw();});
+slamCv.addEventListener('wheel',e=>{e.preventDefault();slam.zoom=Math.max(0.2,Math.min(8,slam.zoom*(e.deltaY<0?1.12:0.89)));slamDraw();},{passive:false});
+async function slamTick(){
+  let j; try{ j=await (await fetch('/api/slam')).json(); }catch(e){ return; }
+  if(!j.enabled) return;
+  $('slamBox').hidden=false; $('mapPlaceholder').hidden=true;
+  $('mapNote').textContent='ORB-SLAM3 · '+j.state;
+  $('slamStats').textContent=j.n_points+' map points · '+j.frames+' frames tracked · '+Math.round(j.latency*1000)+' ms/frame'+(j.resets?' · auto-reset '+j.resets+'×':'')+(j.error?' · '+j.error:'');
+  if(j.version!==slam.ver){slam.ver=j.version;slam.pts=j.points;slam.path=j.path;slam.pose=j.pose;slamDraw();
+    const im=$('slamImg'); im.style.display='block'; im.src='/slam.jpg?'+Date.now();}
+}
+$('vTop').onclick=()=>{slam.yaw=0;slam.pitch=Math.PI/2;slamDraw();};
+$('v3d').onclick=()=>{slam.yaw=0.6;slam.pitch=0.45;slamDraw();};
+$('vFit').onclick=()=>{slam.zoom=1;slamDraw();};
+setInterval(slamTick,500);slamTick();
 </script>
 </body></html>

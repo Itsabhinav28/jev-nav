@@ -12,6 +12,7 @@ import io
 import ipaddress
 import json
 import math
+import os
 import statistics
 from collections import deque
 import socket
@@ -23,15 +24,42 @@ from pathlib import Path
 import cv2
 import numpy as np
 from aiohttp import web
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
 
 import hooks
 import jev_bridge
+import slam_bridge
 from ffmpeg_utils import CaptureSession, find_ffmpeg
 
 BASE = Path(__file__).parent
 STATIC = BASE / "static"
-CAPTURES = BASE / "captures"
+CAPTURES = Path(os.environ.get("CAPTURES_DIR") or BASE / "captures")  # per-instance when several servers share a host
+CERTS = Path(os.environ.get("CERTS_DIR") or BASE / "certs")
+
+
+def ice_server_dicts() -> list[dict]:
+    """ICE servers from the environment, as JSON-able dicts (shared by the server's own peer connection and /api/ice).
+
+    ICE_STUN_URLS: comma-separated stun:/turn: urls (empty = LAN only, no ICE servers).
+    ICE_TURN_URL (+ ICE_TURN_USER / ICE_TURN_PASS): optional TURN relay (comma-separated allowed).
+    """
+    out: list[dict] = []
+    stun = [u.strip() for u in os.environ.get("ICE_STUN_URLS", "").split(",") if u.strip()]
+    if stun:
+        out.append({"urls": stun})
+    turn = [u.strip() for u in os.environ.get("ICE_TURN_URL", "").split(",") if u.strip()]
+    if turn:
+        out.append({"urls": turn, "username": os.environ.get("ICE_TURN_USER", ""),
+                    "credential": os.environ.get("ICE_TURN_PASS", "")})
+    return out
+
+
+def make_peer_connection() -> RTCPeerConnection:
+    servers = ice_server_dicts()
+    if not servers:
+        return RTCPeerConnection()  # LAN: host candidates are enough, no STUN needed
+    return RTCPeerConnection(RTCConfiguration(iceServers=[
+        RTCIceServer(urls=d["urls"], username=d.get("username"), credential=d.get("credential")) for d in servers]))
 
 
 def lan_ip() -> str:
@@ -52,26 +80,33 @@ def make_cert(ip: str) -> tuple[Path, Path]:
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
 
-    d = BASE / "certs"
-    d.mkdir(exist_ok=True)
-    crt, key = d / f"cert_{ip}.pem", d / f"key_{ip}.pem"
+    d = CERTS
+    d.mkdir(parents=True, exist_ok=True)
+    safe = "".join(c if c.isalnum() or c in ".-" else "_" for c in ip)  # ip may be a hostname (or an IPv6 literal)
+    crt, key = d / f"cert_{safe}.pem", d / f"key_{safe}.pem"
     if crt.exists() and key.exists():
         return crt, key
     k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "phone-stream")])
+    san: list = [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+    try:
+        san.append(x509.IPAddress(ipaddress.ip_address(ip)))
+    except ValueError:  # a hostname, not an IP
+        san.append(x509.DNSName(ip))
     now = dt.datetime.now(dt.timezone.utc)
     cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
             .public_key(k.public_key()).serial_number(x509.random_serial_number())
             .not_valid_before(now - dt.timedelta(days=1))
             .not_valid_after(now + dt.timedelta(days=825))
-            .add_extension(x509.SubjectAlternativeName(
-                [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address(ip)),
-                 x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+            .add_extension(x509.SubjectAlternativeName(san), critical=False)
             .sign(k, hashes.SHA256()))
-    crt.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    key.write_bytes(k.private_bytes(serialization.Encoding.PEM,
-                                    serialization.PrivateFormat.TraditionalOpenSSL,
-                                    serialization.NoEncryption()))
+    # write atomically (key first): several instances may start at once and share this file
+    for path, data in ((key, k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+                                              serialization.NoEncryption())),
+                       (crt, cert.public_bytes(serialization.Encoding.PEM))):
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
     return crt, key
 
 
@@ -163,6 +198,9 @@ def ingest(img: np.ndarray, now: float, source: str = "phone") -> None:
     if S.session:
         S.session.push(img)
         S.session.log_sensors(sensor_snapshot(), now)
+    sb = slam_bridge.get()
+    if sb is not None:
+        sb.submit(img, now)
     if not S.hook_busy and now - S.last_hook >= 1 / hooks.ANALYSIS_FPS:
         S.hook_busy, S.last_hook = True, now
         S.pool.submit(run_hook, img, now, sensor_snapshot())
@@ -211,7 +249,7 @@ async def consume(track):
 
 async def offer(request: web.Request):
     params = await request.json()
-    pc = RTCPeerConnection()  # LAN: host candidates are enough, no STUN needed
+    pc = make_peer_connection()
     S.pcs.add(pc)
     cands = [l.split()[4] + ":" + l.split()[5] for l in params["sdp"].splitlines()
              if l.startswith("a=candidate")]
@@ -322,7 +360,16 @@ async def sensors(_):
 
 
 async def info(request: web.Request):
-    return web.json_response({"phone_url": request.app["phone_url"]})
+    return web.json_response({"phone_url": request.app["phone_url"], "ice_servers": ice_server_dicts()})
+
+
+async def ice(_):
+    """ICE servers for the phone's RTCPeerConnection ([] on a LAN)."""
+    return web.json_response(ice_server_dicts())
+
+
+async def healthz(_):
+    return web.Response(text="ok")
 
 
 async def nav(_):
@@ -342,6 +389,20 @@ async def ask(request: web.Request):
 
 async def nav_jpg(_):
     b = jev_bridge.get()
+    if b is None or b.latest_jpeg is None:
+        return web.Response(status=204)
+    return web.Response(body=b.latest_jpeg, content_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+async def slam_api(_):
+    b = slam_bridge.get()
+    if b is None:
+        return web.json_response({"enabled": False})
+    return web.json_response({"enabled": True, **b.snapshot()})
+
+
+async def slam_jpg(_):
+    b = slam_bridge.get()
     if b is None or b.latest_jpeg is None:
         return web.Response(status=204)
     return web.Response(body=b.latest_jpeg, content_type="image/jpeg", headers={"Cache-Control": "no-store"})
@@ -367,10 +428,15 @@ def main():
     ap.add_argument("--no-jev", action="store_true", help="stream only, don't run the Jev navigation council")
     ap.add_argument("--voice", action="store_true", help="speak alerts and Nemotron's lines on the laptop (HeyGen)")
     ap.add_argument("--mic", action="store_true", help="always-on laptop microphone for talking to Nemotron (implies --voice)")
+    ap.add_argument("--slam", action="store_true", help="run ORB-SLAM3 (in WSL) on the stream and draw its 3D map")
     a = ap.parse_args()
 
     if not a.no_jev:
         jev_bridge.start(voice=a.voice or a.mic, mic=a.mic)
+
+    if a.slam:
+        slam_bridge.start_wsl_server()
+        slam_bridge.enable()
 
     find_ffmpeg()  # fail fast with a helpful message
     ip = a.host or lan_ip()
@@ -385,7 +451,7 @@ def main():
         web.get("/phone", lambda r: web.FileResponse(STATIC / "phone.html")),
         web.static("/brand", STATIC / "brand"),
         web.post("/offer", offer), web.get("/preview.mjpg", mjpeg),
-        web.get("/api/status", status), web.get("/api/info", info), web.get("/api/nav", nav), web.post("/api/ask", ask), web.get("/nav.jpg", nav_jpg), web.get("/api/sensors", sensors), web.get("/qr.png", qr),
+        web.get("/api/status", status), web.get("/api/info", info), web.get("/api/ice", ice), web.get("/healthz", healthz), web.get("/api/nav", nav), web.post("/api/ask", ask), web.get("/nav.jpg", nav_jpg), web.get("/api/slam", slam_api), web.get("/slam.jpg", slam_jpg), web.get("/api/sensors", sensors), web.get("/qr.png", qr),
         web.post("/api/capture/start", capture_start), web.post("/api/capture/stop", capture_stop)])
     app.on_shutdown.append(on_shutdown)
 

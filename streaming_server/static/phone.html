@@ -191,7 +191,8 @@ async function start(){
   const vt=stream.getVideoTracks()[0]; vt.contentHint='motion';
   try{ wake=await navigator.wakeLock.request('screen'); }catch(e){}
 
-  pc=new RTCPeerConnection({iceServers:[]});
+  let ice=[]; try{ ice=await (await fetch('/api/ice')).json(); }catch(e){}  // empty on a LAN; STUN/TURN in the cloud
+  pc=new RTCPeerConnection({iceServers:ice});
   dc=pc.createDataChannel('sensors',{ordered:false,maxRetransmits:0});
   clearInterval(sendTimer); sendTimer=setInterval(sensorTick,50);
   const tr=pc.addTransceiver(vt,{direction:'sendonly',streams:[stream]});
