@@ -1,11 +1,13 @@
-# Shared proxy settings for every jev instance (installed as /etc/nginx/snippets/jev-proxy.conf).
-# The app has NO login of its own: basic auth below is mandatory on a public IP.
-auth_basic           "jev-nav";
-auth_basic_user_file /etc/nginx/.htpasswd;
+# Shared proxy settings (installed as /etc/nginx/snippets/jev-proxy.conf).
+# The app has NO login of its own. Access is by a secret link instead of a password:
+# open https://APP_HOST/?k=SECRET once; nginx then sets a cookie and the browser stays in.
+# Without the key or the cookie every request gets 403 (except /healthz). The maps behind this
+# ($jev_allowed, $jev_set_cookie) live in /etc/nginx/jev-access.conf, written by make-access-key.sh.
+if ($jev_allowed = 0) { return 403 "Access link required.\n"; }
+add_header Set-Cookie $jev_set_cookie always;
 
-# --- Optional alternative: allow only your own IPs instead of (or in addition to) a password.
-# With "satisfy any" either a valid IP OR a valid password gets in; "satisfy all" requires both.
-# satisfy any;
+# --- Optional extra: also (or only) allow your own IPs. Combine with the key check above by
+# putting `allow`/`deny` here and `satisfy any;` if either should be enough.
 # allow 203.0.113.10;   # your home/office IP
 # deny  all;
 

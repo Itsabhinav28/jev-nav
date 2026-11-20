@@ -1,53 +1,48 @@
-# Deploying jev-nav on one GCP VM (3 concurrent users)
+# Deploying jev-nav on one GCP VM (1 container, 1 URL)
 
-Everything below is copy-pasteable. Replace the placeholders in `UPPER_CASE` (`DOMAIN`, `PROJECT_ID`, ...). Secrets are never in git: you type them into `/opt/jev-nav/.env` on the VM yourself.
+Everything below is copy-pasteable. Replace the placeholders in `UPPER_CASE` (`APP_HOST`, `PROJECT_ID`, ...). Secrets are never in git: you type them into `/opt/jev-nav/.env` on the VM yourself.
 
 ## 0. What you get
 
 ```
- phone  https://u1.DOMAIN/phone  --HTTPS-->  +---------- Compute Engine VM (Ubuntu 22.04) -----------------------+
- laptop https://u1.DOMAIN/       --HTTPS-->  | nginx :443  (TLS + basic auth)                                   |
- (same for u2.DOMAIN, u3.DOMAIN)             |   u1 -> 127.0.0.1:8081 -> container jev1 (SLAM on 5555)         |
-                                             |   u2 -> 127.0.0.1:8082 -> container jev2 (SLAM on 5556)         |
- phone <==== WebRTC video (UDP) ===========> |   u3 -> 127.0.0.1:8083 -> container jev3 (SLAM on 5557)         |
-        (direct to VM, ephemeral UDP ports)  |  containers use host networking                                  |
-                                             |  jev1..3 --> TypeSafe Jev API, OpenRouter API (outbound HTTPS)   |
-                                             +------------------------------------------------------------------+
+ phone   https://APP_HOST/phone?k=SECRET --HTTPS-->  +------- Compute Engine VM (Ubuntu 22.04) -------+
+ laptop  https://APP_HOST/?k=SECRET      --HTTPS-->  | nginx :443  (TLS + secret-link check)         |
+                                                     |   -> 127.0.0.1:8081 -> container "jev"        |
+ phone <==== WebRTC video (UDP) ===================> |      (dashboard + Jev + ORB-SLAM3 on 5555)    |
+        (direct to the VM, ephemeral UDP ports)      |  host networking                              |
+                                                     |  jev --> TypeSafe Jev API, OpenRouter (HTTPS) |
+                                                     +-----------------------------------------------+
 ```
 
-* The server keeps ONE global stream state, so one container = one phone at a time. Three containers = three independent users. There is deliberately no 4th slot.
-* Each instance has its own subdomain (the pages use absolute URLs like `/offer`, so path prefixes cannot work).
-* The app has **no login of its own**. nginx HTTP basic auth is **mandatory** on a public IP.
+* **One container = one phone at a time.** The server keeps a single global stream state (one camera, one Jev session, one SLAM map). A second phone connecting at the same time would clash with the first. That is the design limit of this deployment.
+* **No password.** Access is by a secret link: people open `https://APP_HOST/?k=SECRET` once, nginx sets a cookie, and they stay in for a year. Anyone without the link (or the cookie) gets 403. Rotate the secret any time (section 7) to cut everyone off.
+* The app itself has **no login**. Never expose the container ports directly (see Security).
 * Jev image input is experimental (see the main README); treat navigation output as assistive only.
 
 ## 1. Prerequisites
 
 - [ ] GCP project with billing enabled
-- [ ] `gcloud` CLI installed and logged in: `gcloud auth login`
-- [ ] A domain where you can create DNS A records
+- [ ] `gcloud` CLI (optional, you can use the Cloud Console instead)
+- [ ] A domain where you can create one DNS A record (e.g. `app.example.com`)
 - [ ] Write access to `github.com/Itsabhinav28/jev-nav` (to add a deploy key)
 - [ ] API keys in hand: TypeSafe (`TYPESAFE_API_KEY`), OpenRouter (`OPENROUTER_API_KEY`)
 
 ## 2. Capacity and sizing (ESTIMATES, not measurements)
 
-Per instance: Python server + about 2 frames/s sent to Jev + ffmpeg/WebRTC decode + ORB-SLAM3 (up to 15 fps at 640 px, about 70 ms/frame, i.e. roughly one CPU core busy) + the ORB vocabulary (about 1-2 GB RAM per SLAM process).
-
-| Item | Per instance | x3 |
-|---|---|---|
-| CPU | ~1.5-2 cores busy while a phone streams | ~5-6 cores |
-| RAM | ~3-4 GB (SLAM 1-2 GB, Python/ffmpeg/buffers 1-2 GB) | ~9-12 GB, plus ~1.5 GB for OS/nginx/Docker |
-| Disk | image (SLAM + Python deps) several GB, logs, `runs/` output | 50-60 GB boot disk |
+One instance: Python server + about 2 frames/s sent to Jev + ffmpeg/WebRTC decode + ORB-SLAM3 (up to 15 fps at 640 px, about 70 ms/frame, i.e. roughly one CPU core busy) + the ORB vocabulary (about 1-2 GB RAM). Roughly **1.5-2 CPU cores and 3-4 GB RAM** while a phone streams, plus the OS/nginx/Docker.
 
 | Machine type | vCPU / RAM | Approx. on-demand, us-central1, 24x7 | Verdict |
 |---|---|---|---|
-| e2-standard-4 | 4 / 16 GB | ~US$98/month | RAM fits, but CPU is oversubscribed when all 3 stream at once; SLAM will lag. Acceptable only if usually 1-2 users. |
-| **e2-standard-8** | 8 / 32 GB | ~US$196/month | **Recommended**: headroom for 3 simultaneous streams. |
+| **e2-standard-4** | 4 / 16 GB | ~US$98/month | **Recommended** for one stream, with headroom for the image build. |
+| e2-standard-2 | 2 / 8 GB | ~US$49/month | Possible but tight: SLAM and the build compete for 2 cores. |
 
-Add roughly US$6/month for a 60 GB balanced disk. Prices change and vary by region: check the [GCP pricing calculator](https://cloud.google.com/products/calculator). Compose caps each container at 7 GB RAM (`mem_limit`) so one runaway instance cannot take down the others. After first real use, check `docker stats` and resize if needed.
+Add roughly US$6/month for a 50-60 GB balanced disk. Prices change and vary by region: check the [GCP pricing calculator](https://cloud.google.com/products/calculator). Compose caps the container at 8 GB RAM (`mem_limit`). After first real use, check `docker stats` and resize if needed.
 
-**Save money:** stop the VM when idle (`gcloud compute instances stop jev-nav --zone $ZONE`). Compute billing stops; disk and static IP still bill. Containers restart on boot (`restart: unless-stopped`).
+**Save money:** stop the VM when idle (`gcloud compute instances stop jev-nav --zone $ZONE`, or Console -> Stop). Compute billing stops; disk and static IP still bill. The container restarts on boot (`restart: unless-stopped`).
 
-## 3. Create the GCP resources (run on your laptop)
+## 3. Create the GCP resources
+
+You can use the Console (VM instances -> Create instance) with these values, or gcloud:
 
 ```bash
 export PROJECT_ID=your-project-id
@@ -62,10 +57,10 @@ gcloud services enable compute.googleapis.com
 gcloud compute addresses create jev-nav-ip --region $REGION
 gcloud compute addresses describe jev-nav-ip --region $REGION --format='value(address)'
 
-# VM
+# VM (network tag "jev-nav" must match the firewall rules below)
 gcloud compute instances create jev-nav \
   --zone $ZONE \
-  --machine-type e2-standard-8 \
+  --machine-type e2-standard-4 \
   --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
   --boot-disk-size 60GB --boot-disk-type pd-balanced \
   --address jev-nav-ip \
@@ -91,29 +86,25 @@ gcloud compute firewall-rules create jev-nav-webrtc --direction INGRESS \
 gcloud compute firewall-rules delete default-allow-ssh
 ```
 
-Why that UDP range: aiortc/aioice binds its ICE sockets with `local_addr=(address, 0)` (see `aioice/ice.py`), so the OS picks an ephemeral port. On Linux that is `net.ipv4.ip_local_port_range`, default 32768-60999, so that range must be open. Trade-off: a wide UDP range is reachable on the VM. Only the app's WebRTC sockets listen there, but it is wider than ideal. Hardening upgrade (optional): run coturn as a TURN server on a single fixed port and force relay; that narrows the range to one port but needs app/ICE configuration changes beyond this guide.
+Why that UDP range: aiortc/aioice binds its ICE sockets with `local_addr=(address, 0)` (see `aioice/ice.py`), so the OS picks an ephemeral port. On Linux that is `net.ipv4.ip_local_port_range`, default 32768-60999, so that range must be open. Trade-off: a wide UDP range is reachable on the VM. Only the app's WebRTC sockets listen there, but it is wider than ideal. Hardening upgrade (optional): run coturn as a TURN server on a single fixed port and force relay.
 
 If SSH stops working because your home IP changed: `gcloud compute firewall-rules update jev-nav-ssh --source-ranges NEW_IP/32`.
 
 ### DNS
 
-At your DNS provider create three **A records** pointing to the static IP:
+At your DNS provider create **one A record** pointing at the static IP (DNS only, no proxy/CDN):
 
 ```
-u1.DOMAIN  A  STATIC_IP
-u2.DOMAIN  A  STATIC_IP
-u3.DOMAIN  A  STATIC_IP
+APP_HOST  A  STATIC_IP        # e.g. app.example.com
 ```
 
-Check: `dig +short u1.DOMAIN u2.DOMAIN u3.DOMAIN` prints the IP three times. Finish this before step 8.
+Check: `dig +short APP_HOST` prints the IP. Finish this before step 8.
 
 ## 4. SSH in
 
 ```bash
-gcloud compute ssh jev-nav --zone $ZONE
+gcloud compute ssh jev-nav --zone $ZONE      # or the SSH button in the Console
 ```
-
-On the VM, create the app directory (the bootstrap script needs the repo, which comes next):
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git
@@ -122,14 +113,12 @@ sudo mkdir -p /opt/jev-nav && sudo chown $USER:$USER /opt/jev-nav
 
 ## 5. GitHub access over SSH, clone, then bootstrap the OS
 
-Generate a key on the VM:
-
 ```bash
 ssh-keygen -t ed25519 -C "jev-nav-gcp-vm" -f ~/.ssh/jev_deploy -N ""
 cat ~/.ssh/jev_deploy.pub
 ```
 
-Copy the printed public key. In GitHub: repo **Itsabhinav28/jev-nav** -> Settings -> Deploy keys -> Add deploy key -> title `gcp-vm`, paste, leave "Allow write access" **unchecked** (read-only). Alternative: add it under your account (Settings -> SSH and GPG keys); that grants access to all your repos, so the deploy key is safer.
+Copy the printed public key. In GitHub: repo **Itsabhinav28/jev-nav** -> Settings -> Deploy keys -> Add deploy key -> title `gcp-vm`, paste, leave "Allow write access" **unchecked** (read-only).
 
 ```bash
 cat >> ~/.ssh/config <<'CFG'
@@ -142,12 +131,7 @@ CFG
 chmod 600 ~/.ssh/config
 
 ssh -T git@github.com    # type "yes" for the host key; expect "successfully authenticated"
-git clone -b deploy/gcp-vm git@github.com:Itsabhinav28/jev-nav.git /opt/jev-nav
-```
-
-(`-b deploy/gcp-vm` until that branch is merged; afterwards drop it.) Now bootstrap the OS (idempotent; handles no secrets):
-
-```bash
+git clone git@github.com:Itsabhinav28/jev-nav.git /opt/jev-nav
 bash /opt/jev-nav/deploy/scripts/setup-vm.sh
 exit     # log out ...
 ```
@@ -155,86 +139,80 @@ exit     # log out ...
 gcloud compute ssh jev-nav --zone $ZONE     # ... and back in so the docker group applies
 ```
 
-`setup-vm.sh` installs: system updates, Docker Engine + compose plugin (official Docker apt repo), nginx, certbot (from snap, the method certbot itself recommends and newer than Ubuntu's apt package), apache2-utils (`htpasswd`), unattended security upgrades, a 4 GB swapfile, and makes sure `/opt/jev-nav` is yours.
+If the folder already exists from an earlier clone: `cd /opt/jev-nav && git checkout main && git pull --ff-only origin main`.
+
+`setup-vm.sh` installs: system updates, Docker Engine + compose plugin (official Docker apt repo), nginx, certbot (snap), unattended security upgrades, a 4 GB swapfile, and makes sure `/opt/jev-nav` is yours.
 
 ## 6. Secrets file (not in git)
 
 ```bash
 cp /opt/jev-nav/deploy/env.example /opt/jev-nav/.env
 chmod 600 /opt/jev-nav/.env
-nano /opt/jev-nav/.env     # set DOMAIN, LETSENCRYPT_EMAIL, TYPESAFE_API_KEY, OPENROUTER_API_KEY
+nano /opt/jev-nav/.env     # set APP_HOST, LETSENCRYPT_EMAIL, TYPESAFE_API_KEY, OPENROUTER_API_KEY
 ```
 
-`ICE_STUN_URLS` is required in the cloud: the VM only knows its private IP, so STUN lets the server advertise its public address to the phone. Keep the default unless you run your own STUN.
+`APP_HOST` is the bare hostname (no `https://`), e.g. `app.example.com`. `ICE_STUN_URLS` is required in the cloud: the VM only knows its private IP, so STUN lets the server advertise its public address to the phone. Keep the default unless you run your own STUN.
 
 OpenRouter note: audio (TTS) needs a balance of at least about US$0.50; below that OpenRouter returns HTTP 402 and only speech fails, other features keep working.
 
-Optional, Google Secret Manager instead of typing keys on the VM (the VM service account needs `roles/secretmanager.secretAccessor`):
+## 7. The secret link (replaces the password)
 
 ```bash
-gcloud services enable secretmanager.googleapis.com
-printf '%s' 'THE_KEY' | gcloud secrets create typesafe-api-key --data-file=-
-# on the VM: fetch and write it into .env (compose still reads /opt/jev-nav/.env)
-KEY=$(gcloud secrets versions access latest --secret=typesafe-api-key)
-sed -i "s|^TYPESAFE_API_KEY=.*|TYPESAFE_API_KEY=$KEY|" /opt/jev-nav/.env
+set -a; . /opt/jev-nav/.env; set +a
+bash /opt/jev-nav/deploy/scripts/make-access-key.sh "$APP_HOST" --no-reload
 ```
 
-## 7. Basic-auth users
+It prints two links: the dashboard link and the phone link, each ending in `?k=SECRET`. Send the phone link to whoever should use it. The first open sets a cookie; after that the plain URL works in that browser. The key is stored in `/etc/nginx/jev-access.conf` (mode 640, never in git).
 
-```bash
-sudo htpasswd -c /etc/nginx/.htpasswd user1     # -c only the first time (creates the file)
-sudo htpasswd /etc/nginx/.htpasswd user2
-sudo htpasswd /etc/nginx/.htpasswd user3
-sudo chown root:www-data /etc/nginx/.htpasswd && sudo chmod 640 /etc/nginx/.htpasswd
-```
+**Rotate (cut everyone off):** run the same script again (without `--no-reload` once nginx is set up). The old link and all old cookies stop working at once; send the new link.
 
-All three subdomains share this file. For separate logins per instance, make copies and point each server block at its own `auth_basic_user_file`. A commented IP-allowlist alternative is in `deploy/nginx/jev-proxy.inc`.
+Anyone who has the link can use your TypeSafe/OpenRouter quota, so share it only with people you trust and set spending limits on the provider side.
 
 ## 8. TLS certificate and nginx
 
-One certificate covers all three subdomains (certbot stores it under `u1.DOMAIN`, which the config expects). It is created first with the standalone method (nginx stopped for a few seconds); the hooks are saved so automatic renewals work.
+The certificate is created first with the standalone method (nginx stopped for a few seconds); the hooks are saved so automatic renewals work.
 
 ```bash
-set -a; . /opt/jev-nav/.env; set +a      # loads DOMAIN and LETSENCRYPT_EMAIL
+dig +short "$APP_HOST"                    # must print the VM's static IP, else stop here
 
 sudo systemctl stop nginx
 sudo certbot certonly --standalone \
-  -d u1.$DOMAIN -d u2.$DOMAIN -d u3.$DOMAIN \
+  -d "$APP_HOST" \
   -m "$LETSENCRYPT_EMAIL" --agree-tos --no-eff-email \
   --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx"
 
-# render config for your domain, install, run nginx -t
-bash /opt/jev-nav/deploy/scripts/render-nginx.sh "$DOMAIN" --no-reload
+bash /opt/jev-nav/deploy/scripts/render-nginx.sh "$APP_HOST" --no-reload
 sudo systemctl start nginx
 
 sudo certbot renew --dry-run             # auto-renew test (a systemd timer does the real renewals)
 ```
 
-Manual equivalent of the render script: `sed "s/DOMAIN/example.com/g" deploy/nginx/jev-nav.conf | sudo tee /etc/nginx/sites-available/jev-nav.conf`, plus copy `deploy/nginx/jev-proxy.inc` to `/etc/nginx/snippets/jev-proxy.conf`, symlink into `sites-enabled`, `sudo nginx -t`, reload.
+`render-nginx.sh` refuses to run until step 7 has created the access key.
 
-## 9. Build the image and start the 3 instances
+## 9. Build the image and start the container
 
 ```bash
+sudo apt-get install -y tmux && tmux new -s build      # the first build is long; tmux survives an SSH drop
 cd /opt/jev-nav/deploy
-docker compose --env-file /opt/jev-nav/.env build     # first build is slow (ORB-SLAM3)
+docker compose --env-file /opt/jev-nav/.env build     # first build is slow (ORB-SLAM3 compiles): 20-40 min
 docker compose --env-file /opt/jev-nav/.env up -d
-docker compose --env-file /opt/jev-nav/.env ps        # wait until all three are (healthy)
+docker compose --env-file /opt/jev-nav/.env ps        # wait until it is (healthy), 1-2 min
 ```
 
-Shortcut so you can drop `--env-file` later: `echo 'export COMPOSE_ENV_FILES=/opt/jev-nav/.env' >> ~/.bashrc && . ~/.bashrc`
+Reattach after a dropped SSH: `tmux attach -t build`. Shortcut so you can drop `--env-file` later: `echo 'export COMPOSE_ENV_FILES=/opt/jev-nav/.env' >> ~/.bashrc && . ~/.bashrc`
 
 ## 10. Verify
 
 ```bash
-for p in 8081 8082 8083; do curl -s http://127.0.0.1:$p/healthz; echo; done     # ok, ok, ok
-curl -sI https://u1.$DOMAIN/ | head -1                                           # 401: auth required
-curl -s -u user1:PASSWORD -o /dev/null -w '%{http_code}\n' https://u1.$DOMAIN/   # 200
-curl -s https://u1.$DOMAIN/healthz                                               # ok (no auth, by design)
+curl -s http://127.0.0.1:8081/healthz; echo                                     # ok
+curl -s https://$APP_HOST/healthz; echo                                         # ok (open by design)
+curl -s -o /dev/null -w '%{http_code}\n' https://$APP_HOST/                     # 403: no key
+curl -s -o /dev/null -w '%{http_code}\n' "https://$APP_HOST/?k=SECRET"          # 200
 ```
 
-* Dashboard (laptop browser): `https://u1.DOMAIN/`, `https://u2.DOMAIN/`, `https://u3.DOMAIN/`
-* Phone: open `https://u1.DOMAIN/phone`, enter the basic-auth login, allow the camera. Each person uses a different instance. The certificate is a real Let's Encrypt one, so there is no browser warning.
-* Logs: `docker compose --env-file /opt/jev-nav/.env logs -f --tail=100 jev1`; nginx: `sudo tail -f /var/log/nginx/error.log`
+* Dashboard (laptop browser): the dashboard link from step 7.
+* Phone: the phone link from step 7, allow the camera. The certificate is a real Let's Encrypt one, so there is no browser warning.
+* Logs: `docker compose --env-file /opt/jev-nav/.env logs -f --tail=100 jev`; nginx: `sudo tail -f /var/log/nginx/error.log`
 
 ## 11. Updating and routine operations
 
@@ -251,10 +229,11 @@ cd /opt/jev-nav/deploy && docker compose --env-file /opt/jev-nav/.env up -d --no
 
 | Task | Command |
 |---|---|
-| Restart one instance | `docker compose --env-file /opt/jev-nav/.env restart jev2` |
+| Restart the app | `docker compose --env-file /opt/jev-nav/.env restart jev` |
 | Status / resources | `docker compose --env-file /opt/jev-nav/.env ps`; `docker stats --no-stream` |
 | Disk cleanup | `docker system prune -af`; `df -h /` |
 | Apply `.env` changes | edit, then `docker compose --env-file /opt/jev-nav/.env up -d` |
+| New secret link | `bash /opt/jev-nav/deploy/scripts/make-access-key.sh "$APP_HOST"` |
 | Stop VM when idle | `gcloud compute instances stop jev-nav --zone $ZONE` |
 | Start VM | `gcloud compute instances start jev-nav --zone $ZONE` (static IP is kept) |
 
@@ -262,21 +241,20 @@ cd /opt/jev-nav/deploy && docker compose --env-file /opt/jev-nav/.env up -d --no
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Phone connects, page loads, but no video | UDP blocked or no public ICE candidate. Check firewall rule `jev-nav-webrtc` (udp:32768-60999, VM has tag `jev-nav`) and that `ICE_STUN_URLS` is set (`docker exec jev1 env \| grep ICE`). Some mobile carriers and corporate Wi-Fi block UDP; try another network. A TURN server is the real fix. |
+| Phone connects, page loads, but no video | UDP blocked or no public ICE candidate. Check firewall rule `jev-nav-webrtc` (udp:32768-60999, VM has tag `jev-nav`) and that `ICE_STUN_URLS` is set (`docker exec jev env \| grep ICE`). Some mobile carriers and corporate Wi-Fi block UDP; try another network. A TURN server is the real fix. |
+| 403 "Access link required." | Open the link with `?k=SECRET`. If it was rotated, ask for the new link. Cookies are per browser. |
 | Browser certificate error | DNS did not point at the IP when certbot ran, or cert expired: `sudo certbot certificates`, `sudo certbot renew --dry-run`. |
-| 502 Bad Gateway | Container down/unhealthy: `docker compose ... ps`, `logs jev1`; test `curl http://127.0.0.1:8081/healthz`. |
-| Cannot log in (401) | Recreate the user: `sudo htpasswd /etc/nginx/.htpasswd user1`. |
-| nginx fails `-t` | Cert missing under `/etc/letsencrypt/live/u1.DOMAIN/`: step 8 certbot failed. |
-| SLAM "lost" / no map | Needs steady motion and textured scenes; look at the container logs for SLAM start-up errors and confirm SLAM ports are unique per instance (5555/5556/5557). |
+| 502 Bad Gateway | Container down/unhealthy: `docker compose ... ps`, `logs jev`; test `curl http://127.0.0.1:8081/healthz`. |
+| nginx fails `-t` | Cert missing under `/etc/letsencrypt/live/APP_HOST/` (step 8 failed) or `/etc/nginx/jev-access.conf` missing (step 7). |
+| SLAM "lost" / no map | Needs steady motion and textured scenes; check the container logs for SLAM start-up errors. |
 | No audio; log shows OpenRouter 402 | OpenRouter balance is under about US$0.50 for TTS; top up. Everything else still works. |
-| Container restarts / killed | Out of memory: `docker inspect jev1 --format '{{.State.OOMKilled}}'`, `free -h`, `sudo dmesg \| grep -i oom`. Use a bigger machine type or raise `mem_limit`. |
+| Container restarts / killed | Out of memory: `docker inspect jev --format '{{.State.OOMKilled}}'`, `free -h`, `sudo dmesg \| grep -i oom`. Use a bigger machine type or raise `mem_limit`. |
 | Phone camera will not start | The page must be HTTPS with a valid cert (nginx provides it) and the camera permission must be granted. |
-| A 4th person cannot connect | By design there are only 3 instances. |
+| A second phone cannot stream at the same time | By design: one container serves one phone at a time. |
 
 ## 13. Security notes
 
-- The app has no authentication. Do not open the container ports (8081-8083, 8443-8445, 5555-5557) in the GCP firewall: with host networking the VM firewall is the boundary. Only tcp 80/443, SSH from your IP, and the WebRTC UDP range are open.
-- Keep `/opt/jev-nav/.env` at mode 600 and out of git; rotate keys if leaked. The GitHub deploy key is read-only.
-- Basic auth is only safe over HTTPS (HTTP redirects to HTTPS). Use long passwords, or the IP allowlist.
-- Anyone with a login can spend your TypeSafe/OpenRouter quota; set spending limits on the provider side.
-- Unattended security upgrades are on; reboot occasionally (`sudo reboot`; containers auto-start).
+- The app has no authentication. Do not open the container ports (8081, 8443, 5555) in the GCP firewall: with host networking the VM firewall is the boundary. Only tcp 80/443, SSH from your IP, and the WebRTC UDP range are open.
+- The secret link is a bearer secret: whoever has it has access (and can spend your API quota). It travels over HTTPS only (HTTP redirects to HTTPS), but it can appear in browser history and server logs. Rotate it when someone leaves or if it leaks.
+- Keep `/opt/jev-nav/.env` at mode 600 and out of git; rotate API keys if leaked. The GitHub deploy key is read-only.
+- Unattended security upgrades are on; reboot occasionally (`sudo reboot`; the container auto-starts).

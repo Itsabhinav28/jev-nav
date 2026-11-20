@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pull latest code, rebuild the image, restart the 3 instances, wait for health.
+# Pull latest code, rebuild the image, restart the container, wait for health.
 #   bash /opt/jev-nav/deploy/scripts/deploy.sh
 # Rollback: see the hint printed at the end.
 set -euo pipefail
@@ -24,7 +24,7 @@ DC=(docker compose --env-file "$APP_DIR/.env")
 echo "Waiting for health checks (up to 3 min)..."
 for _ in $(seq 1 36); do
   bad=0
-  for c in jev1 jev2 jev3; do
+  for c in jev; do
     st=$(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing)
     [ "$st" = healthy ] || bad=1
   done
@@ -34,7 +34,7 @@ done
 
 "${DC[@]}" ps
 if [ "$bad" -ne 0 ]; then
-  echo "Some instances are not healthy. Logs: docker compose logs --tail=100 jev1" >&2
+  echo "The container is not healthy. Logs: docker compose logs --tail=100 jev" >&2
   exit 1
 fi
 docker image prune -f >/dev/null

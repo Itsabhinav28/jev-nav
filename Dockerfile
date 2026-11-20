@@ -50,8 +50,7 @@ RUN mkdir -p /stage/Examples/Monocular /stage/Vocabulary /stage/lib /stage/Third
     && cp Thirdparty/DBoW2/lib/libDBoW2.so /stage/Thirdparty/DBoW2/lib/ \
     && cp Thirdparty/g2o/lib/libg2o.so /stage/Thirdparty/g2o/lib/ \
     && cp Vocabulary/ORBvoc.txt /stage/Vocabulary/ \
-    && mkdir -p /stage/pangolin && cp -a /usr/local/lib/libpango_*.so* /stage/pangolin/ \
-    && (strip --strip-unneeded /stage/Examples/Monocular/slam_server /stage/lib/*.so /stage/Thirdparty/*/lib/*.so /stage/pangolin/*.so* || true) \
+    && (strip --strip-unneeded /stage/Examples/Monocular/slam_server /stage/lib/*.so /stage/Thirdparty/*/lib/*.so || true) \
     && ldd /stage/Examples/Monocular/slam_server
 
 ############################ stage 2: runtime ############################
@@ -59,7 +58,7 @@ FROM ubuntu:22.04
 ARG DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
-# Runtime libs for slam_server (OpenCV 4.5 modules, Pangolin's GL stack, boost) and for the app (ffmpeg, portaudio, libGL for cv2).
+# Runtime libs for slam_server (OpenCV 4.5 modules, GL stack, boost) and for the app (ffmpeg, portaudio, libGL for cv2).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl ffmpeg libportaudio2 libgl1 libglib2.0-0 libgomp1 \
         libopencv-core4.5d libopencv-imgproc4.5d libopencv-imgcodecs4.5d libopencv-features2d4.5d \
@@ -69,8 +68,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=slam-build /stage/ /opt/ORB_SLAM3/
-RUN mv /opt/ORB_SLAM3/pangolin/* /usr/local/lib/ 2>/dev/null; rmdir /opt/ORB_SLAM3/pangolin; ldconfig \
-    && ! ldd /opt/ORB_SLAM3/Examples/Monocular/slam_server | grep "not found"
+# Pangolin v0.6 is built as static libraries, so no Pangolin .so needs shipping; fail the build if anything else is missing.
+RUN ! ldd /opt/ORB_SLAM3/Examples/Monocular/slam_server | grep "not found"
 
 # Python 3.11 via uv (standalone build), venv in /opt/venv
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv

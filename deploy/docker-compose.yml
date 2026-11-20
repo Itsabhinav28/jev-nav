@@ -1,72 +1,35 @@
-# 3 independent app instances (the server keeps ONE global stream state => one phone each).
+# One app instance (the server keeps ONE global stream state => one phone at a time).
 # host networking: WebRTC UDP uses ephemeral ports, so no per-port mapping is needed.
 # Run from /opt/jev-nav/deploy:  docker compose --env-file /opt/jev-nav/.env up -d
-# DOMAIN comes from /opt/jev-nav/.env (used for PUBLIC_HOST below).
-
-x-jev: &jev
-  image: jev-nav:latest
-  build:
-    context: ..
-    dockerfile: Dockerfile
-  network_mode: host
-  init: true
-  restart: unless-stopped
-  env_file:
-    - /opt/jev-nav/.env
-  logging:
-    driver: json-file
-    options:
-      max-size: "10m"
-      max-file: "3"
-  stop_grace_period: 20s
+# APP_HOST comes from /opt/jev-nav/.env (the single public hostname, used for PUBLIC_HOST below).
 
 services:
-  jev1:
-    <<: *jev
-    container_name: jev1
-    mem_limit: 7g
+  jev:
+    image: jev-nav:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: jev
+    network_mode: host
+    init: true
+    restart: unless-stopped
+    mem_limit: 8g
+    env_file:
+      - /opt/jev-nav/.env
     environment:
       HTTPS_PORT: "8443"
       HTTP_PORT: "8081"
       SLAM_PORT: "5555"
-      PUBLIC_HOST: "u1.${DOMAIN:?set DOMAIN in /opt/jev-nav/.env}"
+      PUBLIC_HOST: "${APP_HOST:?set APP_HOST in /opt/jev-nav/.env}"
       ICE_STUN_URLS: "${ICE_STUN_URLS:-stun:stun.l.google.com:19302}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_grace_period: 20s
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz',timeout=3).status==200 else 1)\""]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
-
-  jev2:
-    <<: *jev
-    container_name: jev2
-    mem_limit: 7g
-    environment:
-      HTTPS_PORT: "8444"
-      HTTP_PORT: "8082"
-      SLAM_PORT: "5556"
-      PUBLIC_HOST: "u2.${DOMAIN:?set DOMAIN in /opt/jev-nav/.env}"
-      ICE_STUN_URLS: "${ICE_STUN_URLS:-stun:stun.l.google.com:19302}"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8082/healthz',timeout=3).status==200 else 1)\""]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
-
-  jev3:
-    <<: *jev
-    container_name: jev3
-    mem_limit: 7g
-    environment:
-      HTTPS_PORT: "8445"
-      HTTP_PORT: "8083"
-      SLAM_PORT: "5557"
-      PUBLIC_HOST: "u3.${DOMAIN:?set DOMAIN in /opt/jev-nav/.env}"
-      ICE_STUN_URLS: "${ICE_STUN_URLS:-stun:stun.l.google.com:19302}"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8083/healthz',timeout=3).status==200 else 1)\""]
       interval: 30s
       timeout: 5s
       retries: 3
