@@ -1,0 +1,48 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+**/certs/
+
+# vcs / tooling
+.git
+.gitignore
+.gitattributes
+.github
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.vscode
+.idea
+.DS_Store
+
+# python
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+*.egg-info
+**/*.egg-info
+build
+dist
+
+# data / outputs
+runs/
+captures/
+**/captures/
+videos/
+eval/frames/
+*.log
+*.mp4
+*.mov
+
+# not needed in the image
+tests/
+deploy/
+DEPLOY.md
+Dockerfile
+.dockerignore
+slam/README.md
