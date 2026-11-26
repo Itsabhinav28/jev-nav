@@ -214,6 +214,8 @@ curl -s -o /dev/null -w '%{http_code}\n' "https://$APP_HOST/?k=SECRET"          
 * Phone: the phone link from step 7, allow the camera. The certificate is a real Let's Encrypt one, so there is no browser warning.
 * Logs: `docker compose --env-file /opt/jev-nav/.env logs -f --tail=100 jev`; nginx: `sudo tail -f /var/log/nginx/error.log`
 
+**Recorded demo (Sample.mp4):** `https://APP_HOST/demo/?k=SECRET`. nginx serves it straight from `/opt/jev-nav/demo/` (no container or API calls), behind the same secret link. After pulling a change to the nginx config, re-run `render-nginx.sh` (step 8).
+
 ## 11. Updating and routine operations
 
 ```bash
