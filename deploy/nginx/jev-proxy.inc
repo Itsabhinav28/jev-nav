@@ -15,7 +15,9 @@ add_header Set-Cookie $jev_set_cookie always;
 add_header Strict-Transport-Security "max-age=31536000" always;
 add_header X-Content-Type-Options    "nosniff" always;
 add_header X-Frame-Options           "SAMEORIGIN" always;
-add_header Referrer-Policy           "no-referrer" always;
+# Not "no-referrer": OpenStreetMap's tile servers answer 403 to requests without a Referer.
+# This sends only the origin cross-site, so the ?k= secret in the URL is not leaked.
+add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
 # Camera is needed by /phone; everything else denied
 add_header Permissions-Policy        "camera=(self), microphone=(self), geolocation=(), payment=()" always;
 
