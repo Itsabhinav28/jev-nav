@@ -50,6 +50,9 @@ RUN mkdir -p /stage/Examples/Monocular /stage/Vocabulary /stage/lib /stage/Third
     && cp Thirdparty/DBoW2/lib/libDBoW2.so /stage/Thirdparty/DBoW2/lib/ \
     && cp Thirdparty/g2o/lib/libg2o.so /stage/Thirdparty/g2o/lib/ \
     && cp Vocabulary/ORBvoc.txt /stage/Vocabulary/ \
+    && mkdir -p /stage-pangolin \
+    && find /usr/local -name 'libpangolin*.so*' -exec cp -a {} /stage-pangolin/ \; \
+    && ls /stage-pangolin/libpangolin.so* \
     && (strip --strip-unneeded /stage/Examples/Monocular/slam_server /stage/lib/*.so /stage/Thirdparty/*/lib/*.so || true) \
     && ldd /stage/Examples/Monocular/slam_server
 
@@ -64,12 +67,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libopencv-core4.5d libopencv-imgproc4.5d libopencv-imgcodecs4.5d libopencv-features2d4.5d \
         libopencv-calib3d4.5d libopencv-flann4.5d libopencv-highgui4.5d libopencv-videoio4.5d \
         libboost-serialization1.74.0 libglew2.2 libepoxy0 libwayland-client0 libwayland-egl1 libxkbcommon0 \
-        libegl1 libssl3 \
+        libegl1 libssl3 libopengl0 libglx0 libpng16-16 libjpeg-turbo8 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=slam-build /stage/ /opt/ORB_SLAM3/
-# Pangolin v0.6 is built as static libraries, so no Pangolin .so needs shipping; fail the build if anything else is missing.
-RUN ! ldd /opt/ORB_SLAM3/Examples/Monocular/slam_server | grep "not found"
+# Pangolin v0.6 builds a shared libpangolin.so (installed in /usr/local/lib in the build stage); ship it and refresh the linker cache.
+COPY --from=slam-build /stage-pangolin/ /usr/local/lib/
+RUN ldconfig \
+    && ldd /opt/ORB_SLAM3/Examples/Monocular/slam_server \
+    && ! ldd /opt/ORB_SLAM3/Examples/Monocular/slam_server | grep "not found"
 
 # Python 3.11 via uv (standalone build), venv in /opt/venv
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
