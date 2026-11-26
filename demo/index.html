@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev Nav Demo</title>
+<style>
+  :root{--bg:#0f1216;--card:#181d24;--fg:#e8edf2;--mut:#8a96a3;--line:#2a323c;
+        --go:#2ecc71;--warn:#f5a623;--crit:#ff4d4f;--accent:#4da3ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+  header h1{margin:0;font-size:18px}
+  header span{color:var(--mut);font-size:13px}
+  main{display:grid;grid-template-columns:minmax(260px,420px) 1fr;gap:20px;padding:20px;max-width:1100px;margin:0 auto}
+  @media(max-width:760px){main{grid-template-columns:1fr;padding:12px}}
+  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;align-self:start}
+  video{display:block;width:100%;height:auto}
+  canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .badge{position:absolute;left:10px;top:10px;padding:6px 12px;border-radius:8px;font-weight:700;font-size:18px;background:var(--go);color:#04210f;letter-spacing:.3px}
+  .badge.warn{background:var(--warn);color:#2b1a00}
+  .badge.crit{background:var(--crit);color:#fff}
+  .panel{display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card h2{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut)}
+  .big{font-size:30px;font-weight:800}
+  .big.go{color:var(--go)}.big.warn{color:var(--warn)}.big.crit{color:var(--crit)}
+  dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0}
+  dt{color:var(--mut)}dd{margin:0}
+  .timeline{display:flex;height:26px;border-radius:6px;overflow:hidden;cursor:pointer;position:relative}
+  .timeline div{flex:1;min-width:1px}
+  .timeline .cur{position:absolute;top:0;bottom:0;width:2px;background:#fff;flex:none;box-shadow:0 0 6px #fff}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;color:var(--mut);font-size:12px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button{background:var(--accent);color:#031225;border:0;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer}
+  button.sec{background:#2a323c;color:var(--fg)}
+  label{color:var(--mut);display:flex;align-items:center;gap:6px}
+  ul{margin:0;padding-left:18px}
+  .log{max-height:160px;overflow:auto;font-size:13px;color:var(--mut)}
+  .log b{color:var(--fg)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Jev Nav: walking guidance demo</h1>
+  <span>Recorded run on Sample.mp4. Runs fully offline, no network needed.</span>
+</header>
+<main>
+  <div style="align-self:start;position:sticky;top:12px">
+    <div class="stage" id="stage">
+      <video id="v" src="sample.mp4" playsinline controls muted preload="auto"></video>
+      <canvas id="c"></canvas>
+      <div class="badge" id="badge">-</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="card">
+      <h2>Decision now</h2>
+      <div class="big" id="action">-</div>
+      <div id="reason" style="margin-top:4px;color:var(--mut)"></div>
+    </div>
+    <div class="card">
+      <h2>Details</h2>
+      <dl>
+        <dt>Urgency</dt><dd id="urg">-</dd>
+        <dt>Hazard</dt><dd id="haz">-</dd>
+        <dt>Distance</dt><dd id="dist">-</dd>
+        <dt>Time to contact</dt><dd id="ttc">-</dd>
+        <dt>Walker</dt><dd id="act">-</dd>
+        <dt>Confidence</dt><dd id="conf">-</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h2>Timeline (click to jump)</h2>
+      <div class="timeline" id="tl"></div>
+      <div class="legend">
+        <span><i style="background:var(--go)"></i>Move forward</span>
+        <span><i style="background:var(--warn)"></i>Slow / step aside</span>
+        <span><i style="background:var(--crit)"></i>Stop</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Controls</h2>
+      <div class="row">
+        <button id="play">Play</button>
+        <button class="sec" id="restart">Restart</button>
+        <label><input type="checkbox" id="speak"> Speak alerts (device voice)</label>
+        <label><input type="checkbox" id="boxes" checked> Show boxes</label>
+      </div>
+    </div>
+    <div class="card">
+      <h2>3D SLAM map (ORB-SLAM3)</h2>
+      <canvas id="sm" width="640" height="420" style="width:100%;height:auto;background:#0b0e12;border:1px solid var(--line);border-radius:8px;cursor:grab;touch-action:none;position:static" aria-label="3D map from ORB-SLAM3"></canvas>
+      <div class="row" style="margin-top:8px">
+        <button class="sec" id="vTop">Top</button><button class="sec" id="v3d">3D</button><button class="sec" id="vFit">Fit</button>
+        <span id="sstat" style="color:var(--mut);font-size:13px"></span>
+      </div>
+      <div class="legend"><span><i style="background:#cfd8e3"></i>Map points</span><span><i style="background:#ff4d4f"></i>Walking path</span><span><i style="background:#4da3ff"></i>Camera now</span></div>
+      <p style="color:var(--mut);font-size:12px;margin:6px 0 0">Drag to rotate, wheel to zoom. Scale is arbitrary (single camera). When tracking is lost the map restarts, same as the live dashboard.</p>
+    </div>
+    <div class="card">
+      <h2>Spoken commands</h2>
+      <div class="big" id="say" style="font-size:24px">-</div>
+      <div class="log" id="log" style="margin-top:8px"></div>
+    </div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const v = $('v'), cv = $('c'), ctx = cv.getContext('2d');
+let D = [];
+const NAMES = {MOVE_FORWARD:'Move forward',SLOW_DOWN:'Slow down',STOP:'Stop',WAIT:'Wait',GO_LEFT:'Step left',GO_RIGHT:'Step right',
+  STOP_AT_STAIRS:'Stairs ahead, stop',CLIMB_UP:'Climbing up',CLIMB_DOWN:'Climbing down'};
+const SAY = {STOP:'Stop!',WAIT:'Wait.',SLOW_DOWN:'Slow down.',GO_LEFT:'Step left.',GO_RIGHT:'Step right.',STOP_AT_STAIRS:'Stairs ahead. Stop.',MOVE_FORWARD:'Path is clear.'};
+const cls = a => a==='MOVE_FORWARD'?'go' : (a==='STOP'||a==='STOP_AT_STAIRS')?'crit' : 'warn';
+const col = a => ({go:'#2ecc71',warn:'#f5a623',crit:'#ff4d4f'})[cls(a)];
+let lastIdx = -1, speakOn = false, changes = [];
+
+function at(t){ // latest decision whose timestamp <= t
+  let lo=0, hi=D.length-1, r=0;
+  while(lo<=hi){ const m=(lo+hi)>>1; if(D[m].t<=t){r=m;lo=m+1}else hi=m-1 }
+  return r;
+}
+function fit(){
+  const w=Math.round(v.clientWidth*devicePixelRatio), h=Math.round(v.clientHeight*devicePixelRatio);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}
+}
+function draw(d){
+  fit(); ctx.clearRect(0,0,cv.width,cv.height);
+  if(!$('boxes').checked) return;
+  const W=cv.width, H=cv.height, k=devicePixelRatio;
+  ctx.lineWidth=3*k; ctx.font=`${13*k}px system-ui`;
+  for(const b of d.boxes){
+    const x=b.l*W, y=b.t*H, w=(b.r-b.l)*W, h=(b.b-b.t)*H;
+    ctx.strokeStyle=col(d.action); ctx.strokeRect(x,y,w,h);
+    const txt=b.label.replace(/_/g,' ')+' '+Math.round(b.presence*100)+'%';
+    const tw=ctx.measureText(txt).width+8*k, ty=Math.max(0,y-18*k);
+    ctx.fillStyle=col(d.action); ctx.fillRect(x,ty,tw,18*k);
+    ctx.fillStyle='#000'; ctx.fillText(txt,x+4*k,ty+13*k);
+  }
+}
+function renderLog(i){
+  const shown=changes.filter(j=>j<=i);
+  $('log').innerHTML=shown.slice().reverse().map(j=>`<div><b>${D[j].t.toFixed(1)}s</b> ${SAY[D[j].action]||NAMES[D[j].action]||D[j].action}</div>`).join("");
+  const last=shown.length?D[shown[shown.length-1]]:null;
+  $('say').textContent=last?(SAY[last.action]||NAMES[last.action]):'-';
+}
+function show(i, userSeek){
+  const d=D[i], c=cls(d.action);
+  $('badge').textContent=NAMES[d.action]||d.action; $('badge').className='badge '+c;
+  $('action').textContent=NAMES[d.action]||d.action; $('action').className='big '+c;
+  $('reason').textContent=(d.reasons||[]).join(' | ');
+  $('urg').textContent=d.urgency; $('haz').textContent=d.hazard?(d.hazard.replace(/_/g,' ')+(d.side?' ('+d.side+')':'')):'none';
+  $('dist').textContent=d.distance; $('ttc').textContent=d.ttc!=null?d.ttc.toFixed(1)+' s':'-';
+  $('act').textContent=d.activity; $('conf').textContent=Math.round(d.conf*100)+'%';
+  draw(d);
+  if(i!==lastIdx){
+    const prev=D[lastIdx];
+    renderLog(i);
+    if(speakOn&&!v.paused&&!userSeek&&(!prev||prev.action!==d.action)&&SAY[d.action]&&'speechSynthesis' in window){
+      speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(SAY[d.action]));
+    }
+    lastIdx=i;
+  }
+}
+
+/* ---- 3D SLAM map (orbit view, no libraries) ---- */
+const sm=$('sm'), sx=sm.getContext('2d');
+const S={ep:[],view:{yaw:0,pitch:Math.PI/2,zoom:1},drag:null,epNow:0,ok:false,states:[]};
+function median(a){const b=a.slice().sort((x,y)=>x-y);return b[b.length>>1]||0}
+function q95(a){const b=a.slice().sort((x,y)=>x-y);return b[Math.floor(b.length*0.95)]||0}
+function slamInit(j){
+  let n=1; for(const s of j.states) n=Math.max(n,s[2]+1); for(const p of j.points) n=Math.max(n,p[4]+1);
+  for(let e=0;e<n;e++){
+    const P=j.points.filter(p=>p[4]===e), L=j.path.filter(p=>p[4]===e);
+    const all=P.concat(L); let c=[0,0,0], sp=1;
+    if(all.length){c=[0,1,2].map(k=>median(all.map(p=>p[k])));
+      sp=Math.max(1e-6,...[0,1,2].map(k=>q95(all.map(p=>Math.abs(p[k]-c[k])))))}
+    S.ep.push({P,L,c,sp});
+  }
+  S.states=j.states; S.ok=S.states.length>0;
+}
+function cntUpTo(arr,t,idx){let lo=0,hi=arr.length;while(lo<hi){const m=(lo+hi)>>1;if(arr[m][idx]<=t)lo=m+1;else hi=m}return lo}
+function slamDraw(t){
+  if(!S.ok) return;
+  const W=sm.width,H=sm.height;
+  let st=S.states[0]; for(const s of S.states){ if(s[0]<=t) st=s; else break }
+  const E=S.ep[st[2]]||S.ep[0];
+  sx.fillStyle='#0b0e12'; sx.fillRect(0,0,W,H);
+  const V=S.view, c=E.c, sc=Math.min(W,H)*0.42/E.sp*V.zoom;
+  const cy=Math.cos(V.yaw),sy=Math.sin(V.yaw),cp=Math.cos(V.pitch),sp=Math.sin(V.pitch);
+  const proj=p=>{const x=p[0]-c[0],y=-(p[1]-c[1]),z=p[2]-c[2];
+    const x1=x*cy+z*sy,z1=-x*sy+z*cy,y2=y*cp-z1*sp,z2=y*sp+z1*cp;
+    const f=1/(1+z2*sc/(W*1.6));return[W/2+x1*sc*f,H/2-y2*sc*f]};
+  const np=cntUpTo(E.P,t,3), nl=cntUpTo(E.L,t,3);
+  sx.fillStyle='#cfd8e3';
+  for(let i=0;i<np;i++){const q=proj(E.P[i]);sx.fillRect(q[0],q[1],2,2)}
+  if(nl>1){sx.strokeStyle='#ff4d4f';sx.lineWidth=2.5;sx.beginPath();
+    for(let i=0;i<nl;i++){const q=proj(E.L[i]);i?sx.lineTo(q[0],q[1]):sx.moveTo(q[0],q[1])}sx.stroke()}
+  if(nl>0){const q=proj(E.L[nl-1]);sx.fillStyle='#4da3ff';sx.beginPath();sx.arc(q[0],q[1],6,0,7);sx.fill()}
+  $('sstat').textContent=st[1]+' | '+np+' map points | '+nl+' poses | map '+(st[2]+1)+' of '+S.ep.length;
+}
+sm.addEventListener('pointerdown',e=>{S.drag=[e.clientX,e.clientY];sm.setPointerCapture(e.pointerId);sm.style.cursor='grabbing'});
+sm.addEventListener('pointerup',()=>{S.drag=null;sm.style.cursor='grab'});
+sm.addEventListener('pointermove',e=>{if(!S.drag)return;const V=S.view;
+  V.yaw+=(e.clientX-S.drag[0])*0.008;V.pitch=Math.max(-1.5,Math.min(1.5,V.pitch+(e.clientY-S.drag[1])*0.008));S.drag=[e.clientX,e.clientY]});
+sm.addEventListener('wheel',e=>{e.preventDefault();S.view.zoom=Math.max(0.2,Math.min(8,S.view.zoom*(e.deltaY<0?1.12:0.89)))},{passive:false});
+$('vTop').onclick=()=>{S.view.yaw=0;S.view.pitch=Math.PI/2};
+$('v3d').onclick=()=>{S.view.yaw=0.6;S.view.pitch=0.45};
+$('vFit').onclick=()=>{S.view.zoom=1};
+
+function tick(){
+  if(D.length){
+    const t=v.currentTime||0;
+    show(at(t));
+    slamDraw(t);
+    $('cur').style.left=(t/(v.duration||D[D.length-1].t+0.5)*100)+'%';
+  }
+  $('play').textContent=v.paused?'Play':'Pause';
+  requestAnimationFrame(tick);
+}
+Promise.all([
+  fetch('decisions.json').then(r=>r.json()),
+  fetch('slam.json').then(r=>r.json()).catch(()=>null)
+]).then(([j,sj])=>{
+  D=j;
+  D.forEach((d,i)=>{if(i===0||D[i-1].action!==d.action)changes.push(i)});
+  if(sj) slamInit(sj); else $('sstat').textContent='SLAM data missing (run demo/record_slam.py)';
+  const tl=$('tl'), end=D[D.length-1].t+0.5;
+  D.forEach((d,i)=>{const s=document.createElement('div'); s.style.background=col(d.action);
+    s.style.flex=((D[i+1]?D[i+1].t:end)-d.t); s.title=d.t.toFixed(1)+'s '+(NAMES[d.action]||d.action); tl.appendChild(s)});
+  const cur=document.createElement('div'); cur.className='cur'; cur.id='cur'; tl.appendChild(cur);
+  tl.addEventListener('click',e=>{const r=tl.getBoundingClientRect(); if(v.duration) v.currentTime=(e.clientX-r.left)/r.width*v.duration});
+  show(0,true); tick();
+  const q=parseFloat(new URLSearchParams(location.search).get('t'));
+  if(q>0){const go=()=>{v.currentTime=q};v.readyState>0?go():v.addEventListener('loadedmetadata',go,{once:true})}
+}).catch(err=>{$('reason').textContent='Could not load demo data: '+err});
+v.addEventListener('seeked',()=>{lastIdx=-1;if(D.length)show(at(v.currentTime),true)});
+$('play').onclick=()=>{v.paused?v.play():v.pause()};
+$('restart').onclick=()=>{v.currentTime=0;lastIdx=-1;v.play()};
+$('speak').onchange=e=>{speakOn=e.target.checked; if(!speakOn&&'speechSynthesis' in window) speechSynthesis.cancel()};
+v.addEventListener('pause',()=>{if('speechSynthesis' in window) speechSynthesis.cancel()});
+window.addEventListener('resize',()=>{lastIdx=-1});
+</script>
+</body>
+</html>
